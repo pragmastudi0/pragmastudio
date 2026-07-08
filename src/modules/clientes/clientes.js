@@ -25,6 +25,7 @@ function renderClients() {
                   <span class="font-medium">${escapeHtml(c.name)}</span>
                   <span class="chip bg-gray-100 text-gray-700">${escapeHtml(dtLabel)}${c.docType !== '99' && c.docNumber ? ` ${escapeHtml(c.docNumber)}` : ''}</span>
                   ${c.condicionIVA ? `<span class="chip bg-blue-50 text-blue-700">${escapeHtml(c.condicionIVA)}</span>` : ''}
+                  ${c.email ? `<span class="chip bg-gray-100 text-gray-600" title="Email">✉ ${escapeHtml(c.email)}</span>` : ''}
                 </div>
                 <div class="text-xs text-gray-500">${linked} proyecto${linked!==1?'s':''} vinculado${linked!==1?'s':''}${c.notes ? ` · ${escapeHtml(c.notes)}` : ''}</div>
               </div>
@@ -42,7 +43,7 @@ function renderClients() {
 }
 
 function openClientModal(id) {
-  const c = id ? getClient(id) : { id: null, name: '', docType: '99', docNumber: '', condicionIVA: '', notes: '' };
+  const c = id ? getClient(id) : { id: null, name: '', docType: '99', docNumber: '', condicionIVA: '', email: '', notes: '' };
   openModal(`
     <div class="p-6">
       <h2 class="text-xl font-semibold mb-4">${id ? 'Editar cliente' : 'Nuevo cliente'}</h2>
@@ -70,6 +71,10 @@ function openClientModal(id) {
             <option value="">Sin definir</option>
             ${CONDICION_IVA.map(x => `<option value="${x}" ${c.condicionIVA===x?'selected':''}>${x}</option>`).join('')}
           </select>
+        </div>
+        <div>
+          <label class="text-xs text-gray-500">Email <span class="text-gray-400">(para envío de facturas)</span></label>
+          <input type="email" name="email" class="input" value="${escapeAttr(c.email || '')}" placeholder="cliente@empresa.com" />
         </div>
         <div>
           <label class="text-xs text-gray-500">Notas</label>

@@ -38,6 +38,7 @@ function renderTeam() {
       <p class="text-xs text-gray-500">En comentarios escribí <b>@Nombre</b> para notificar a un miembro. El 🔑 indica el email asociado a su login (Supabase Auth).</p>
 
       ${renderEmailSettings()}
+      ${renderInvoiceEmailSettings()}
       ${renderFinanceSettings()}
       ${renderSecuritySettings()}
     </div>

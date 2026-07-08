@@ -6,6 +6,7 @@
     "node": "20.x"
   },
   "dependencies": {
-    "@afipsdk/afip.js": "^1.1.4"
+    "@afipsdk/afip.js": "^1.1.4",
+    "nodemailer": "^6.9.0"
   }
 }

@@ -15,6 +15,8 @@ function openInvoiceModal(item) {
   const defaultName = client?.name || p?.companyName || p?.contactName || p?.name || '';
   // Condición IVA del receptor (obligatorio AFIP). Desde el cliente; si no, Consumidor Final.
   const defaultCondCode = client?.condicionIVA ? condicionIVACode(client.condicionIVA) : 5;
+  // Email del cliente (para el paso de envío por email tras emitir).
+  const defaultEmail = client?.email || p?.contactEmail || '';
 
   // Fechas servicio: por defecto el mes del ingreso (timezone-safe)
   const monthStr = item.month || todayISO().slice(0, 7);
@@ -71,6 +73,11 @@ function openInvoiceModal(item) {
         <div>
           <label class="text-xs text-gray-500">Cliente (nombre / razón social)</label>
           <input name="clientName" class="input" value="${escapeAttr(defaultName)}" placeholder="Opcional, para tu registro" />
+        </div>
+
+        <div>
+          <label class="text-xs text-gray-500">Email del cliente <span class="text-gray-400">(para enviar la factura)</span></label>
+          <input type="email" name="clientEmail" class="input" value="${escapeAttr(defaultEmail)}" placeholder="cliente@empresa.com" />
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -406,6 +413,7 @@ async function confirmEmitInvoice() {
       amount: result.amount,
       currency: result.currency || 'PES',
       clientName: data.clientName || '',
+      clientEmail: data.clientEmail || '',
       clientDocType: payload.clientDocType,
       clientDocNumber: payload.clientDocNumber,
       condicionIVAReceptorId: payload.condicionIVAReceptorId,
@@ -469,9 +477,13 @@ function renderInvoiceSuccess(invoice) {
 
       <div class="flex flex-col-reverse sm:flex-row gap-2 justify-center max-w-md mx-auto">
         <button type="button" class="btn-ghost" onclick="closeModal()">Cerrar</button>
-        <button type="button" class="btn-primary inline-flex items-center justify-center gap-2" onclick='openInvoicePdf(${JSON.stringify(invoice).replace(/"/g,"&quot;")})'>
+        <button type="button" class="btn-ghost inline-flex items-center justify-center gap-2" onclick='openInvoicePdf(${JSON.stringify(invoice).replace(/"/g,"&quot;")})'>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
           Descargar PDF
+        </button>
+        <button type="button" class="btn-primary inline-flex items-center justify-center gap-2" onclick='openSendInvoiceEmailModal(${JSON.stringify(invoice).replace(/"/g,"&quot;")})'>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z" fill="none"/><polyline points="22,6 12,13 2,6"/><path d="M2 6h20v12H2z"/></svg>
+          Enviar por email
         </button>
       </div>
     </div>
