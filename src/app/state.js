@@ -18,13 +18,15 @@ const DEFAULT_STATE = {
   expensePayments: [],            // { id, expenseId, amount, date, paidAt, paidBy, exchangeRate, note }
   pragmaPhone: '',
   paymentMessageTemplate: 'Hola {name}! 👋\n\nTe paso el recordatorio del pago mensual del proyecto *{project}* correspondiente a {month}.\n\nMonto: {amount}\n\n¡Gracias!\nPragma Studio',
+  invoiceEmailSubject: 'Factura {code} · Pragma Studio',
+  invoiceEmailTemplate: 'Hola {clientName},\n\nTe adjuntamos la factura {code} correspondiente a {projectName}.\n\nMonto: {amount}\nCAE: {cae}\nFecha: {date}\n\n¡Gracias!\nPragma Studio',
   defaultCurrency: 'ARS',
   exchangeRate: 1200,             // ARS por USD
   exchangeRateSource: 'manual',   // 'manual' | 'blue' | 'oficial' | 'mep' | 'cripto' | 'tarjeta'
   exchangeRateUpdatedAt: null,
   budgets: [],                    // Presupuestos: { id, code, clientName, category, pricingModel, currency, status, items, riskFactors, contingencyPct, ... }
   invoices: [],                   // Facturas AFIP: { id, incomeId, projectId, cae, number, ptoVta, cbteTipo, typeName, date, amount, currency, clientName, clientDocType, clientDocNumber, condicionIVAReceptorId, issuedAt, issuedBy }
-  clients: [],                    // Clientes (datos fiscales): { id, name, docType, docNumber, condicionIVA, notes }
+  clients: [],                    // Clientes (datos fiscales): { id, name, docType, docNumber, condicionIVA, email, notes }
 };
 
 const INCOME_STATUS = {

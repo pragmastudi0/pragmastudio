@@ -1,4 +1,6 @@
-function openInvoicePdf(invoice) {
+// Arma el HTML completo de la factura (mismo layout para impresión y PDF adjunto).
+// Devuelve { html, qrImg } — qrImg se usa para pre-cargar el QR al generar el PDF.
+function buildInvoicePdfHtml(invoice) {
   // Fallback: si la factura es vieja y no tiene snapshots, reconstruir desde el income
   if (!invoice._itemConcept || !invoice._projectName) {
     const inc = invoice.incomeId && !invoice.incomeId.startsWith('auto:')
@@ -189,6 +191,11 @@ function openInvoicePdf(invoice) {
 </body>
 </html>`;
 
+  return { html, qrImg };
+}
+
+function openInvoicePdf(invoice) {
+  const { html } = buildInvoicePdfHtml(invoice);
   const w = window.open('', '_blank');
   if (!w) {
     alert('El navegador bloqueó la ventana. Permití pop-ups para descargar el PDF.');

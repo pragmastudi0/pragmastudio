@@ -10,6 +10,8 @@
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
   html, body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif; }
   body { background: #fafafa; color: #111; }
@@ -227,6 +229,7 @@ alter publication supabase_realtime add table pragma_state;</code></pre>
 <script src="src/shared/services/api.js"></script>
 <script src="src/modules/facturacion/facturacion.ui.js"></script>
 <script src="src/modules/facturacion/facturacion.pdf.js"></script>
+<script src="src/modules/facturacion/facturacion.email.js"></script>
 <script src="src/modules/facturacion/facturacion.status.js"></script>
 <script src="src/modules/finanzas/finanzas.calc.js"></script>
 <script src="src/modules/finanzas/tipo-cambio.js"></script>
