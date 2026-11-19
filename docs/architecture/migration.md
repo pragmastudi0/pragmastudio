@@ -63,8 +63,18 @@ funciones declaradas y comprueba que todas estén en el bridge (resultado: 0 fal
 
 Registrar qué se verificó, qué pasó y qué quedó pendiente.
 
-## Etapas siguientes (fuera de esta sesión)
-`utils/helpers` → `core/constants` → `core/state`+`persistence` (patrón store) → `services/*` →
-módulos de UI (dashboard, tasks, projects, clients, finance, invoices, reports, documents, team,
-notifications, prompt) → `components/*`. Reducir el window-bridge a medida que cada módulo adopte
-listeners propios, siempre sin cambiar comportamiento.
+## Patrón para servicios: inyección de dependencias (DI)
+Los servicios que necesitan estado/funciones compartidas (`state`, `save`, `render`, `showToast`,
+helpers) NO se acoplan al monolito ni usan `window.*`: exponen un `init…(deps)` que el BOOT de
+`legacy/app.js` llama una vez (ej. `initExchange({ getState: () => state, save, render, showToast })`).
+Como esos servicios sólo **mutan** propiedades de `state` (no lo reasignan), `getState()` devolviendo la
+referencia viva alcanza. Este patrón lo seguirán los servicios críticos cuando se migren.
+
+## Progreso de la migración
+- ✅ Hecho: `modules/budgets`, `utils/helpers` (+tests), `core/constants`, `services/exchange`,
+  `services/email`.
+- ⏳ Siguiente (requiere QA en navegador por ser login/sync/estado): `core/state`+`persistence`
+  (patrón `store.state`/accessor para las 323 refs), `services/supabase|auth|realtime|api`.
+- ⏳ Luego: módulos de UI (dashboard, tasks, projects, clients, finance, invoices, reports, documents,
+  team, notifications, prompt) → `components/*`. Reducir el window-bridge a medida que cada módulo adopte
+  listeners propios, siempre sin cambiar comportamiento.

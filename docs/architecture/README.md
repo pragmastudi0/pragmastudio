@@ -54,7 +54,11 @@ Esto preserva el comportamiento EXACTO sin tocar la lógica. Detalle y lista en 
 | CSS extraído | ✅ hecho |
 | Script reubicado a `src/legacy/app.js` + window-bridge | ✅ hecho |
 | Módulo **Presupuestos** (constants + engine) + tests | ✅ hecho |
-| core/state, persistence, services (supabase/auth/realtime/exchange/email) | ⏳ etapas siguientes |
+| **utils/helpers** (puros: fechas, formato, escapeHtml) + tests | ✅ hecho |
+| **core/constants** (enums/display cross-cutting) | ✅ hecho |
+| **services/exchange** + **services/email** (no críticos; inyección de deps) | ✅ hecho |
+| core/state + persistence (patrón store, 323 refs) | ⏳ etapa con QA en navegador |
+| services críticos (supabase/auth/realtime/api — login/sync) | ⏳ etapa con QA en navegador |
 | Resto de módulos (tasks, projects, clients, finance, invoices, reports, etc.) | ⏳ etapas siguientes |
 
 Ver `migration.md` para el plan de las etapas restantes y el checklist de validación.

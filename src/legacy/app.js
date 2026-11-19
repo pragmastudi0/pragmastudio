@@ -27,18 +27,19 @@ const DEFAULT_STATE = {
   clients: [],                    // Clientes (datos fiscales): { id, name, docType, docNumber, condicionIVA, notes }
 };
 
-const INCOME_STATUS = {
-  PENDING:   { label: 'Pendiente',  color: 'bg-amber-100 text-amber-800' },
-  CHARGED:   { label: 'Cobrado',    color: 'bg-green-100 text-green-700' },
-  CONFIRMED: { label: 'Confirmado', color: 'bg-green-100 text-green-700' },
-};
-const EXPENSE_STATUS = {
-  PENDING: { label: 'Pendiente', color: 'bg-amber-100 text-amber-800' },
-  PAID:    { label: 'Pagado',    color: 'bg-gray-100 text-gray-700' },
-};
+// Constantes genéricas (enums/display) extraídas a src/core/constants.js (refactor modular).
+import {
+  STATUS, STATUS_ORDER, PRIORITY, INCOME_STATUS, EXPENSE_STATUS, EXPENSE_CAT,
+  PROJECT_STATUS, PROJECT_STATUS_ORDER, PROJECT_TYPE, PROJECT_TYPE_ORDER,
+  PROJECT_COLORS, DEFAULT_PROJECT_COLOR, DOC_CATEGORIES, RES_CATEGORIES, NAV,
+  MONTH_NAMES_SHORT, MONTH_NAMES_FULL, CLIENT_DOC_TYPES, DOC_TYPE_LABELS, CONDICION_IVA,
+} from '../core/constants.js';
 
-const DOC_CATEGORIES = ['Contrato', 'Propuesta', 'Brief', 'Plantilla', 'Legal', 'Guía interna', 'Otro'];
-const RES_CATEGORIES = ['Diseño', 'Desarrollo', 'IA', 'Marketing', 'Productividad', 'Finanzas', 'Otro'];
+// Servicios (capa services/) — reciben sus dependencias vía init…() en el BOOT.
+import {
+  DOLAR_SOURCES, fetchBluelyticsBlue, autoFetchBlueIfStale, fetchDollarRate, initExchange,
+} from '../services/exchange.js';
+import { sendNotificationEmail, testEmail, initEmail } from '../services/email.js';
 
 // Identidad local (no se sincroniza — cada dispositivo/persona tiene la suya)
 let currentMemberId = localStorage.getItem('pragma_current_member') || 'me';
@@ -356,42 +357,14 @@ function reconfigureCloud() {
   localStorage.removeItem('pragma_cloud_skip');
   location.reload();
 }
-function uid() { return Math.random().toString(36).slice(2, 10); }
-function fmt(d) { if (!d) return '—'; const x = new Date(d); return x.toLocaleDateString('es-AR', { day:'2-digit', month:'short' }); }
-function fmtMoney(n) { return '$' + (Number(n)||0).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }); }
-function todayISO() { return new Date().toISOString().slice(0,10); }
-function daysBetween(a,b) { return Math.round((new Date(b) - new Date(a)) / 86400000); }
+// Helpers puros extraídos a src/utils/helpers.js (refactor modular).
+import {
+  uid, fmt, fmtMoney, todayISO, daysBetween,
+  lastDayOfMonth, monthsBetween, prevMonthKey, escapeHtml, escapeAttr,
+} from '../utils/helpers.js';
 
 // ============ CONSTANTS ============
-const STATUS = {
-  PENDING:     { label: 'Pendiente',   color: 'bg-gray-200 text-gray-700' },
-  IN_PROGRESS: { label: 'En progreso', color: 'bg-blue-100 text-blue-700' },
-  IN_REVIEW:   { label: 'En revisión', color: 'bg-amber-100 text-amber-800' },
-  COMPLETED:   { label: 'Completada',  color: 'bg-green-100 text-green-700' },
-  BLOCKED:     { label: 'Bloqueada',   color: 'bg-red-100 text-red-700' },
-};
-const STATUS_ORDER = ['PENDING','IN_PROGRESS','IN_REVIEW','BLOCKED','COMPLETED'];
-const PRIORITY = {
-  LOW:    { label: 'Baja',   color: 'bg-gray-100 text-gray-600' },
-  MEDIUM: { label: 'Media',  color: 'bg-blue-50 text-blue-700' },
-  HIGH:   { label: 'Alta',   color: 'bg-orange-100 text-orange-700' },
-  URGENT: { label: 'Urgente',color: 'bg-red-100 text-red-700' },
-};
-const EXPENSE_CAT = {
-  FIXED:      'Fijo',
-  VARIABLE:   'Variable',
-  INVESTMENT: 'Inversión',
-};
-const PROJECT_STATUS = {
-  LEAD:             { label: 'Lead',              color: 'bg-gray-100 text-gray-700' },
-  POSSIBLE:         { label: 'Posible',           color: 'bg-blue-50 text-blue-700' },
-  IN_DEVELOPMENT:   { label: 'En desarrollo',     color: 'bg-amber-100 text-amber-800' },
-  ACTIVE_RECURRING: { label: 'Activo mensualidad',color: 'bg-green-100 text-green-700' },
-  PAUSED:           { label: 'Pausado',           color: 'bg-yellow-100 text-yellow-700' },
-  DONE:             { label: 'Terminado',         color: 'bg-purple-100 text-purple-700' },
-  ARCHIVED:         { label: 'Archivado',         color: 'bg-gray-50 text-gray-500' },
-};
-const PROJECT_STATUS_ORDER = ['LEAD','POSSIBLE','IN_DEVELOPMENT','ACTIVE_RECURRING','PAUSED','DONE','ARCHIVED'];
+// STATUS, STATUS_ORDER, PRIORITY, EXPENSE_CAT, PROJECT_STATUS(_ORDER) → src/core/constants.js (importados arriba).
 
 // ============ PRESUPUESTOS ============
 // Constantes y motor de estimación extraídos a src/modules/budgets/ (refactor modular).
@@ -402,25 +375,7 @@ import {
 } from '../modules/budgets/constants.js';
 import { getBudgetCategories, estimateBudget } from '../modules/budgets/engine.js';
 
-const PROJECT_TYPE = {
-  SYSTEM: { label: 'Sistema', hint: 'Mensualidad' },
-  WEB:    { label: 'Web',     hint: 'Inicio/fin' },
-  OTHER:  { label: 'Otro',    hint: 'Cualquier otro' },
-};
-const PROJECT_TYPE_ORDER = ['SYSTEM','WEB','OTHER'];
-
-// Paleta de colores standard para proyectos (8 colores)
-const PROJECT_COLORS = [
-  { value: '#6b7280', name: 'Gris' },
-  { value: '#3b82f6', name: 'Azul' },
-  { value: '#8b5cf6', name: 'Violeta' },
-  { value: '#ec4899', name: 'Rosa' },
-  { value: '#10b981', name: 'Verde' },
-  { value: '#f59e0b', name: 'Ámbar' },
-  { value: '#f97316', name: 'Naranja' },
-  { value: '#ef4444', name: 'Rojo' },
-];
-const DEFAULT_PROJECT_COLOR = '#6b7280';
+// PROJECT_TYPE(_ORDER), PROJECT_COLORS, DEFAULT_PROJECT_COLOR → src/core/constants.js (importados arriba).
 
 // Devuelve los tipos del proyecto como array (maneja legacy con projectType string)
 function getProjectTypes(p) {
@@ -512,24 +467,7 @@ function showToast(message, type = 'info', duration = 4000) {
   }, duration);
 }
 
-// ---- Email (EmailJS) ----
-function sendNotificationEmail(forMemberId, taskId, text) {
-  const cfg = state.emailConfig;
-  if (!cfg || !cfg.enabled || !cfg.serviceId || !cfg.templateId || !cfg.publicKey) return;
-  const member = getMember(forMemberId);
-  if (!member || !member.email) return;
-  const task = getTask(taskId);
-  const sender = currentMember();
-  if (typeof emailjs === 'undefined') return;
-  emailjs.send(cfg.serviceId, cfg.templateId, {
-    to_email: member.email,
-    to_name: member.name,
-    from_name: sender?.name || 'Pragma',
-    message: text,
-    task_title: task?.title || '',
-    task_url: window.location.href,
-  }, { publicKey: cfg.publicKey }).catch(err => console.warn('EmailJS error:', err));
-}
+// ---- Email (EmailJS) → src/services/email.js (sendNotificationEmail, testEmail; importados arriba) ----
 
 // ---- Drag and drop for projects ----
 let _draggingProjectId = null;
@@ -569,18 +507,7 @@ function dropProject(e, status) {
 }
 
 // ============ NAV ============
-const NAV = [
-  { key: 'tasks',     label: 'Tareas',      icon: '☰' },
-  { key: 'projects',  label: 'Proyectos',   icon: '◫' },
-  { key: 'clients',   label: 'Clientes',    icon: '⊙' },
-  { key: 'budgets',   label: 'Presupuestos',icon: '$' },
-  { key: 'finance',   label: 'Finanzas',    icon: '◷' },
-  { key: 'reports',   label: 'Reportes',    icon: '◈' },
-  { key: 'documents', label: 'Documentos', icon: '▤' },
-  { key: 'resources', label: 'Recursos',   icon: '◇' },
-  { key: 'team',      label: 'Equipo',     icon: '◐' },
-  { key: 'guide',     label: 'Manual',     icon: '?' },
-];
+// NAV → src/core/constants.js (importado arriba).
 
 function renderNav() {
   const nav = document.getElementById('nav');
@@ -2637,27 +2564,7 @@ function saveEmailConfig(e) {
   showToast('Configuración guardada', 'success');
 }
 
-function testEmail() {
-  const me = currentMember();
-  if (!me || !me.email) { alert('Cargá un email en tu perfil de miembro primero.'); return; }
-  const cfg = state.emailConfig;
-  if (!cfg || !cfg.serviceId || !cfg.templateId || !cfg.publicKey) { alert('Configurá Service ID, Template ID y Public Key primero.'); return; }
-  if (typeof emailjs === 'undefined') { alert('EmailJS no cargó. Recargá la página.'); return; }
-  showToast('Enviando email de prueba...', 'info', 2000);
-  emailjs.send(cfg.serviceId, cfg.templateId, {
-    to_email: me.email,
-    to_name: me.name,
-    from_name: 'Pragma Studio',
-    message: 'Esta es una notificación de prueba',
-    task_title: 'Test de configuración',
-    task_url: window.location.href,
-  }, { publicKey: cfg.publicKey })
-    .then(() => showToast('✓ Email enviado a ' + me.email, 'success', 5000))
-    .catch(err => {
-      console.error('EmailJS test error:', err);
-      alert('Falló el envío: ' + (err.text || err.message || 'error desconocido'));
-    });
-}
+// testEmail → src/services/email.js (importado arriba).
 
 const MEMBER_ROLES = [
   { key: 'FOUNDER',     label: 'Owner / Fundador' },
@@ -2775,25 +2682,9 @@ let financeYear  = String(new Date().getFullYear());
 let financeFrom  = new Date(new Date().getFullYear(), new Date().getMonth() - 2, 1).toISOString().slice(0,10);
 let financeTo    = new Date().toISOString().slice(0,10);
 
-function lastDayOfMonth(yyyymm) {
-  const [y, m] = yyyymm.split('-').map(Number);
-  const last = new Date(y, m, 0).getDate();
-  return `${yyyymm}-${String(last).padStart(2,'0')}`;
-}
+// lastDayOfMonth, monthsBetween → src/utils/helpers.js (importados arriba).
 
-function monthsBetween(fromDate, toDate) {
-  const out = [];
-  let [fy, fm] = fromDate.split('-').slice(0,2).map(Number);
-  const [ty, tm] = toDate.split('-').slice(0,2).map(Number);
-  while (fy < ty || (fy === ty && fm <= tm)) {
-    out.push(`${fy}-${String(fm).padStart(2,'0')}`);
-    fm++; if (fm > 12) { fm = 1; fy++; }
-  }
-  return out;
-}
-
-const MONTH_NAMES_SHORT = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-const MONTH_NAMES_FULL  = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+// MONTH_NAMES_SHORT, MONTH_NAMES_FULL → src/core/constants.js (importados arriba).
 
 function getFinanceRange() {
   if (financeMode === 'month') {
@@ -2911,12 +2802,7 @@ function getAutoExpensesInRange(from, to) {
 // Sólo se arrastran INGRESOS con cobro PARCIAL (algo cobrado, falta resto).
 // Y SÓLO en el mes inmediatamente siguiente al original — no se proyecta
 // hacia futuros meses indefinidamente.
-function prevMonthKey(monthStr) {
-  const [y, m] = monthStr.split('-').map(Number);
-  const prevM = m === 1 ? 12 : m - 1;
-  const prevY = m === 1 ? y - 1 : y;
-  return `${prevY}-${String(prevM).padStart(2,'0')}`;
-}
+// prevMonthKey → src/utils/helpers.js (importado arriba).
 
 // ---- Cash-flow: lista todos los pagos con su fecha real (no la fecha del item original) ----
 function getAllCashFlowPayments(kind) {
@@ -3430,15 +3316,7 @@ function deleteClient(id) {
 
 // Tipos de documento del receptor (AFIP). Reusado en el modal de cliente
 // y en el modal de emisión de factura.
-const CLIENT_DOC_TYPES = [
-  { v: '99', label: 'Consumidor Final' },
-  { v: '80', label: 'CUIT' },
-  { v: '86', label: 'CUIL' },
-  { v: '96', label: 'DNI' },
-];
-const DOC_TYPE_LABELS = CLIENT_DOC_TYPES.reduce((m, d) => (m[d.v] = d.label, m), {});
-// Condición frente al IVA (informativa; el backend actual no la envía a AFIP).
-const CONDICION_IVA = ['Responsable Inscripto', 'Monotributo', 'Exento', 'Consumidor Final'];
+// CLIENT_DOC_TYPES, DOC_TYPE_LABELS, CONDICION_IVA → src/core/constants.js (importados arriba).
 
 function _incomeIdFor(item) {
   if (!item || !item.id) return null;
@@ -4319,65 +4197,8 @@ function toBaseCurrencyForItem(item, toCurrency) {
   return convertAt(item.amount, item.currency, toCurrency, getEffectiveRate(item));
 }
 
-// ---- USD exchange rate ----
-const DOLAR_SOURCES = [
-  { key: 'blue',    label: 'Blue',     desc: 'Mercado paralelo' },
-  { key: 'oficial', label: 'Oficial',  desc: 'BCRA' },
-  { key: 'mep',     label: 'MEP/Bolsa',desc: 'AL30' },
-  { key: 'cripto',  label: 'Cripto',   desc: 'Stablecoin' },
-  { key: 'tarjeta', label: 'Tarjeta',  desc: 'Oficial + impuestos' },
-];
-
-async function fetchBluelyticsBlue({ silent = false } = {}) {
-  try {
-    if (!silent) showToast('Buscando dólar blue...', 'info', 1500);
-    const res = await fetch('https://api.bluelytics.com.ar/v2/latest');
-    if (!res.ok) throw new Error('API error');
-    const data = await res.json();
-    const rate = Number(data?.blue?.value_avg);
-    if (!rate || isNaN(rate)) throw new Error('No rate');
-    state.exchangeRate = Math.round(rate);
-    state.exchangeRateSource = 'bluelytics';
-    state.exchangeRateUpdatedAt = data.last_update || new Date().toISOString();
-    save();
-    if (!silent) showToast(`✓ Dólar blue: $${rate.toLocaleString('es-AR')} (Bluelytics)`, 'success', 3500);
-    render();
-    return rate;
-  } catch (err) {
-    console.warn('Bluelytics fetch failed:', err);
-    if (!silent) alert('No se pudo obtener la cotización del blue. Cargala manual.\n\n' + (err.message || err));
-    return null;
-  }
-}
-
-async function autoFetchBlueIfStale() {
-  // Auto-fetch on boot if rate is older than 4h or never set
-  const last = state.exchangeRateUpdatedAt ? new Date(state.exchangeRateUpdatedAt).getTime() : 0;
-  const ageHours = (Date.now() - last) / 1000 / 3600;
-  if (ageHours > 4) {
-    await fetchBluelyticsBlue({ silent: true });
-  }
-}
-
-async function fetchDollarRate(source = 'blue') {
-  try {
-    showToast('Buscando cotización...', 'info', 1500);
-    const res = await fetch(`https://dolarapi.com/v1/dolares/${source}`);
-    if (!res.ok) throw new Error('API error');
-    const data = await res.json();
-    const rate = Number(data.venta || data.compra);
-    if (!rate || isNaN(rate)) throw new Error('No rate');
-    state.exchangeRate = Math.round(rate);
-    state.exchangeRateSource = source;
-    state.exchangeRateUpdatedAt = data.fechaActualizacion || new Date().toISOString();
-    save();
-    showToast(`✓ Dólar ${source}: $${rate.toLocaleString('es-AR')}`, 'success', 3500);
-    render();
-  } catch (err) {
-    console.error('fetchDollarRate error:', err);
-    alert('No se pudo obtener la cotización. Cargala manual.\n\n' + (err.message || err));
-  }
-}
+// ---- USD exchange rate → src/services/exchange.js ----
+// DOLAR_SOURCES, fetchBluelyticsBlue, autoFetchBlueIfStale, fetchDollarRate (importados arriba).
 
 function openExchangeRateModal() {
   const updatedLabel = state.exchangeRateUpdatedAt
@@ -6361,8 +6182,7 @@ document.getElementById('fileInput').addEventListener('change', (e) => {
 });
 
 // ============ UTILS ============
-function escapeHtml(s) { return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-function escapeAttr(s) { return escapeHtml(s); }
+// escapeHtml, escapeAttr → src/utils/helpers.js (importados arriba).
 
 function attachViewEvents() {}
 
@@ -6373,6 +6193,10 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ============ BOOT ============
+// Inyectar dependencias en los servicios (capa services/) antes de usarlos.
+initExchange({ getState: () => state, save, render, showToast });
+initEmail({ getState: () => state, getMember, getTask, currentMember, showToast });
+
 // Mostrar overlay de login por defecto hasta que Supabase confirme sesión
 renderLoginOverlay();
 renderNav();

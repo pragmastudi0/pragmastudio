@@ -21,14 +21,14 @@ main.js       (orquesta el boot)
 | `modules/budgets` | Cotizador: constantes + `estimateBudget`/`getBudgetCategories` | §4.4, §10.6 | ✅ |
 | `core/state` | `DEFAULT_STATE`, `state`, `load` | §5, §11 (reasignación) | ⏳ |
 | `core/persistence` | `save` (localStorage + upsert Supabase), export/import | §8, §11 | ⏳ |
-| `core/constants` | STATUS, PRIORITY, PROJECT_STATUS, NAV, categorías… | — | ⏳ |
+| `core/constants` | STATUS, PRIORITY, PROJECT_STATUS, NAV, categorías… | — | ✅ |
 | `core/nav` + `core/render` | `NAV`, `renderNav`, `go`, `render` (dispatch) | §9 | ⏳ |
-| `utils/helpers` | `uid, todayISO, fmt, daysBetween, monthsBetween, prevMonthKey, lastDayOfMonth, escapeHtml` | §8 | ⏳ |
+| `utils/helpers` | `uid, todayISO, fmt, fmtMoney, daysBetween, monthsBetween, prevMonthKey, lastDayOfMonth, escapeHtml, escapeAttr` | §8 | ✅ |
 | `services/supabase` | `createClient`, `initSupabase` | §6, §7 | ⏳ |
 | `services/auth` | login/logout, `MEMBER_MAP`, `setMemberFromAuthUser` | §6 | ⏳ |
 | `services/realtime` | `subscribeRealtime` (suscripción única) | §11 | ⏳ |
-| `services/exchange` | `fetchBluelyticsBlue`, `fetchDollarRate`, `autoFetchBlueIfStale` | §7 | ⏳ |
-| `services/email` | `sendNotificationEmail`, `testEmail` (EmailJS) | §7 | ⏳ |
+| `services/exchange` | `fetchBluelyticsBlue`, `fetchDollarRate`, `autoFetchBlueIfStale`, `DOLAR_SOURCES` (DI) | §7 | ✅ |
+| `services/email` | `sendNotificationEmail`, `testEmail` (EmailJS, DI) | §7 | ✅ |
 | `services/api` | `callApi`, `getAuthToken` (cliente de `/api/afip/*`) | §6, §7 | ⏳ |
 | `modules/dashboard` | Home (vence hoy, bloqueadas, semana) | §4 | ⏳ |
 | `modules/tasks` | Tareas, Kanban, Gantt, comentarios/menciones | §4.1 | ⏳ |
