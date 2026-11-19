@@ -1,2 +1,2 @@
 import './styles/base.css';
-import './legacy/app.js';
+import './boot.js';

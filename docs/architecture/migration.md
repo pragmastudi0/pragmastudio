@@ -70,11 +70,26 @@ helpers) NO se acoplan al monolito ni usan `window.*`: exponen un `init…(deps)
 Como esos servicios sólo **mutan** propiedades de `state` (no lo reasignan), `getState()` devolviendo la
 referencia viva alcanza. Este patrón lo seguirán los servicios críticos cuando se migren.
 
-## Progreso de la migración
-- ✅ Hecho: `modules/budgets`, `utils/helpers` (+tests), `core/constants`, `services/exchange`,
-  `services/email`.
-- ⏳ Siguiente (requiere QA en navegador por ser login/sync/estado): `core/state`+`persistence`
-  (patrón `store.state`/accessor para las 323 refs), `services/supabase|auth|realtime|api`.
-- ⏳ Luego: módulos de UI (dashboard, tasks, projects, clients, finance, invoices, reports, documents,
-  team, notifications, prompt) → `components/*`. Reducir el window-bridge a medida que cada módulo adopte
-  listeners propios, siempre sin cambiar comportamiento.
+## Progreso de la migración — ✅ COMPLETA
+Todo `src/legacy/app.js` fue tallado en módulos (core/services/modules/utils) + `boot.js`. El monolito
+ya no existe. El estado mutable compartido vive en el objeto `S` de `core/state.js` (importado por los
+módulos que lo usan); el window-bridge y el arranque viven en `boot.js`.
+
+### Cómo se dividió de forma verificable (sin navegador)
+1. **Runtime compartido `S`**: las 29 variables mutables top-level pasaron a `const S = {…}` y todas sus
+   referencias se renombraron a `S.x` con una transformación **AST scope-aware** (acorn), verificando 0
+   shadowing. Las escrituras de propiedad `S.x = …` funcionan entre módulos sin setters.
+2. **División por secciones**: cada declaración top-level se asignó a un módulo según su sección
+   (`// ==== ====`), con overrides para `S`/`DEFAULT_STATE`/`load`/config. Las sentencias ejecutables
+   (arranque, listeners, bridge) fueron a `boot.js` en orden.
+3. **Resolución de imports automática**: un script construyó el índice símbolo→módulo desde los
+   `export`, corrió **ESLint `no-undef`** por archivo y agregó los imports faltantes hasta 0 errores.
+   ESLint es la red de seguridad clave: detecta la referencia no importada que Vite/esbuild NO reporta.
+4. **Verificación**: `npm run build` + `npm run lint` + `npm test` (incluye smoke de render en jsdom de
+   las 10 vistas) + cobertura del window-bridge, todo verde.
+
+### Pendiente real
+- **QA manual en navegador** (abajo): login/sync Supabase, finanzas, y facturación AFIP — no verificables
+  automáticamente aquí.
+- Mejoras opcionales futuras: subdividir `modules/finance.js` (grande), reducir el window-bridge cuando
+  los módulos adopten listeners propios, y migrar Supabase/EmailJS de CDN a imports npm.
