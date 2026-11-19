@@ -42,7 +42,6 @@ import {
 import { sendNotificationEmail, testEmail, initEmail } from '../services/email.js';
 
 // Identidad local (no se sincroniza — cada dispositivo/persona tiene la suya)
-let currentMemberId = localStorage.getItem('pragma_current_member') || 'me';
 
 // ============ LOGIN (Supabase Auth) ============
 // Mapeo email → datos del miembro. Si entra un email nuevo, se crea miembro genérico.
@@ -53,55 +52,55 @@ const MEMBER_MAP = {
   'faculamosimo@gmail.com':   { memberId: 'facundo', name: 'Facundo', color: '#10b981' },
 };
 
-let _currentAuthUser = null;  // user de Supabase Auth
+  // user de Supabase Auth
 
-function getAuthUser() { return _currentAuthUser; }
-function isLoggedIn() { return !!_currentAuthUser; }
+function getAuthUser() { return S._currentAuthUser; }
+function isLoggedIn() { return !!S._currentAuthUser; }
 
 // Encuentra o crea el miembro local correspondiente al user de auth y setea currentMemberId
 function setMemberFromAuthUser(user) {
   if (!user || !user.email) return;
   const email = user.email.toLowerCase();
   // 1. Buscar miembro existente con ese email
-  let member = state.members.find(m => (m.email || '').toLowerCase() === email);
+  let member = S.state.members.find(m => (m.email || '').toLowerCase() === email);
   if (!member) {
     // 2. Mapeo predefinido
     const def = MEMBER_MAP[email];
     if (def) {
-      member = state.members.find(m => m.id === def.memberId);
+      member = S.state.members.find(m => m.id === def.memberId);
       if (member) {
         if (!member.email) { member.email = email; save(); }
       } else {
         member = { id: def.memberId, name: def.name, color: def.color, email };
-        state.members.push(member); save();
+        S.state.members.push(member); save();
       }
     } else {
       // 3. Miembro genérico
       member = { id: uid(), name: email.split('@')[0], color: '#6b7280', email };
-      state.members.push(member); save();
+      S.state.members.push(member); save();
     }
   }
-  currentMemberId = member.id;
+  S.currentMemberId = member.id;
   localStorage.setItem('pragma_current_member', member.id);
 }
 
 async function attemptLogin(email, password) {
-  if (!sb) return { ok: false, error: 'Conexión a Supabase no disponible' };
-  const { data, error } = await sb.auth.signInWithPassword({ email: (email||'').trim(), password });
+  if (!S.sb) return { ok: false, error: 'Conexión a Supabase no disponible' };
+  const { data, error } = await S.sb.auth.signInWithPassword({ email: (email||'').trim(), password });
   if (error) {
     const msg = (error.message || '').toLowerCase();
     if (msg.includes('invalid')) return { ok: false, error: 'Email o contraseña incorrectos' };
     if (msg.includes('email not confirmed')) return { ok: false, error: 'Email no confirmado en Supabase' };
     return { ok: false, error: error.message };
   }
-  _currentAuthUser = data.user;
+  S._currentAuthUser = data.user;
   return { ok: true };
 }
 
 async function logout() {
   if (!confirm('¿Cerrar sesión?')) return;
-  try { await sb?.auth.signOut(); } catch (e) {}
-  _currentAuthUser = null;
+  try { await S.sb?.auth.signOut(); } catch (e) {}
+  S._currentAuthUser = null;
   localStorage.removeItem('pragma_current_member');
   location.reload();
 }
@@ -149,7 +148,7 @@ async function handleLogin(e) {
     return;
   }
   // Login OK
-  setMemberFromAuthUser(_currentAuthUser);
+  setMemberFromAuthUser(S._currentAuthUser);
   document.getElementById('loginOverlay').classList.add('hidden');
   // Ahora que estamos autenticados, cargar el state y suscribir realtime
   try {
@@ -163,9 +162,6 @@ async function handleLogin(e) {
   showToast(`Hola ${currentMember()?.name || ''}`, 'success', 2500);
 }
 
-let state = load();
-let currentView = 'tasks';
-let currentTaskId = null;
 
 function load() {
   try {
@@ -179,10 +175,6 @@ function load() {
 const SUPABASE_URL = 'https://vvstklprisbqngocgsal.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ2c3RrbHByaXNicW5nb2Nnc2FsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2NTQyNzEsImV4cCI6MjA5MjIzMDI3MX0.Q7LywZvDUQh6g-EpuX3_rXmiygwP8rlOD_KmIR9eze8';
 
-let sb = null;
-let sbChannel = null;
-let cloudReady = false;
-let saveTimer = null;
 const CLIENT_ID = (() => {
   let id = localStorage.getItem('pragma_client_id');
   if (!id) { id = Math.random().toString(36).slice(2); localStorage.setItem('pragma_client_id', id); }
@@ -211,26 +203,26 @@ async function initSupabase() {
     return;
   }
   try {
-    sb = supabase.createClient(config.url, config.key);
+    S.sb = supabase.createClient(config.url, config.key);
     setSyncStatus('Conectando...', '#fbbf24');
 
     // Check existing Supabase Auth session
-    const { data: { session } } = await sb.auth.getSession();
+    const { data: { session } } = await S.sb.auth.getSession();
     if (session?.user) {
-      _currentAuthUser = session.user;
+      S._currentAuthUser = session.user;
       setMemberFromAuthUser(session.user);
     }
 
     // Listen for auth state changes (login, logout, expiry)
-    sb.auth.onAuthStateChange(async (event, session) => {
+    S.sb.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_OUT' || (event === 'TOKEN_REFRESHED' && !session)) {
-        _currentAuthUser = null;
+        S._currentAuthUser = null;
         if (event === 'SIGNED_OUT') {
           showToast('Sesión cerrada', 'info', 2000);
           setTimeout(() => location.reload(), 800);
         }
       } else if (event === 'SIGNED_IN' && session?.user) {
-        _currentAuthUser = session.user;
+        S._currentAuthUser = session.user;
         setMemberFromAuthUser(session.user);
       } else if (event === 'USER_DELETED' || event === 'USER_UPDATED') {
         location.reload();
@@ -259,40 +251,40 @@ async function initSupabase() {
 }
 
 async function loadStateFromCloud() {
-  if (!sb) return;
+  if (!S.sb) return;
   setSyncStatus('Cargando...', '#fbbf24');
-  const { data, error } = await sb.from('pragma_state').select('*').eq('id', 'main').maybeSingle();
+  const { data, error } = await S.sb.from('pragma_state').select('*').eq('id', 'main').maybeSingle();
   if (error) {
     setSyncStatus('Error de carga', '#ef4444');
     throw error;
   }
   if (data && data.data) {
-    state = { ...structuredClone(DEFAULT_STATE), ...data.data };
-    localStorage.setItem('pragma_state', JSON.stringify(state));
+    S.state = { ...structuredClone(DEFAULT_STATE), ...data.data };
+    localStorage.setItem('pragma_state', JSON.stringify(S.state));
     // Re-resolver member ahora que tenemos members frescos del cloud
-    if (_currentAuthUser) setMemberFromAuthUser(_currentAuthUser);
+    if (S._currentAuthUser) setMemberFromAuthUser(S._currentAuthUser);
   } else {
     // First-time: push local state
-    await sb.from('pragma_state').upsert({ id: 'main', data: state, writer: CLIENT_ID });
+    await S.sb.from('pragma_state').upsert({ id: 'main', data: S.state, writer: CLIENT_ID });
   }
-  cloudReady = true;
+  S.cloudReady = true;
   setSyncStatus('Sincronizado', '#22c55e');
 }
 
 function subscribeRealtime() {
-  if (!sb || sbChannel) return;
-  sbChannel = sb.channel('pragma-state-changes')
+  if (!S.sb || S.sbChannel) return;
+  S.sbChannel = S.sb.channel('pragma-state-changes')
     .on('postgres_changes',
       { event: '*', schema: 'public', table: 'pragma_state', filter: 'id=eq.main' },
       (payload) => {
         const newRow = payload.new;
         if (!newRow || newRow.writer === CLIENT_ID) return;
-        const prevNotifIds = new Set((state.notifications || []).map(n => n.id));
-        state = { ...structuredClone(DEFAULT_STATE), ...newRow.data };
-        localStorage.setItem('pragma_state', JSON.stringify(state));
+        const prevNotifIds = new Set((S.state.notifications || []).map(n => n.id));
+        S.state = { ...structuredClone(DEFAULT_STATE), ...newRow.data };
+        localStorage.setItem('pragma_state', JSON.stringify(S.state));
         setSyncStatus('Sincronizado', '#22c55e');
-        (state.notifications || []).forEach(n => {
-          if (!prevNotifIds.has(n.id) && n.forMemberId === currentMemberId && !n.read) {
+        (S.state.notifications || []).forEach(n => {
+          if (!prevNotifIds.has(n.id) && n.forMemberId === S.currentMemberId && !n.read) {
             showToast(n.text, 'info', 5000);
           }
         });
@@ -307,15 +299,15 @@ function subscribeRealtime() {
 }
 
 function save() {
-  localStorage.setItem('pragma_state', JSON.stringify(state));
-  if (!sb || !cloudReady) return;
-  clearTimeout(saveTimer);
+  localStorage.setItem('pragma_state', JSON.stringify(S.state));
+  if (!S.sb || !S.cloudReady) return;
+  clearTimeout(S.saveTimer);
   setSyncStatus('Guardando...', '#fbbf24');
-  saveTimer = setTimeout(async () => {
+  S.saveTimer = setTimeout(async () => {
     try {
-      const { error } = await sb.from('pragma_state').upsert({
+      const { error } = await S.sb.from('pragma_state').upsert({
         id: 'main',
-        data: state,
+        data: S.state,
         writer: CLIENT_ID,
         updated_at: new Date().toISOString(),
       });
@@ -375,6 +367,39 @@ import {
 } from '../modules/budgets/constants.js';
 import { getBudgetCategories, estimateBudget } from '../modules/budgets/engine.js';
 
+// ===== Runtime compartido (estado mutable del monolito) =====
+const S = {
+  state: load(),
+  currentView: 'tasks',
+  currentTaskId: null,
+  currentMemberId: localStorage.getItem('pragma_current_member') || 'me',
+  _currentAuthUser: null,
+  sb: null,
+  sbChannel: null,
+  cloudReady: false,
+  saveTimer: null,
+  _draggingProjectId: null,
+  tasksViewMode: 'kanban',
+  tasksFilter: { projectId: '', status: '' },
+  projectsViewMode: 'kanban',
+  projectsListStatus: '',
+  projectsTypeFilter: '',
+  promptStyle: 'organize',
+  docsFilter: '',
+  resourcesFilter: '',
+  budgetsFilterStatus: '',
+  _budgetItemCounter: 0,
+  financeMode: 'month',
+  financeMonth: new Date().toISOString().slice(0,7),
+  financeYear: String(new Date().getFullYear()),
+  financeFrom: new Date(new Date().getFullYear(), new Date().getMonth() - 2, 1).toISOString().slice(0,10),
+  financeTo: new Date().toISOString().slice(0,10),
+  _currentPaymentsItem: null,
+  _currentInvoiceItem: null,
+  _currentInvoiceForm: null,
+  _currentPaymentIncome: null,
+};
+
 // PROJECT_TYPE(_ORDER), PROJECT_COLORS, DEFAULT_PROJECT_COLOR → src/core/constants.js (importados arriba).
 
 // Devuelve los tipos del proyecto como array (maneja legacy con projectType string)
@@ -388,21 +413,21 @@ function projectTypesText(p) {
 }
 
 // ============ HELPERS ============
-function getProject(id) { return state.projects.find(p => p.id === id); }
-function getTask(id)    { return state.tasks.find(t => t.id === id); }
-function getMember(id)  { return state.members.find(m => m.id === id); }
-function getClient(id)  { return (state.clients || []).find(c => c.id === id); }
+function getProject(id) { return S.state.projects.find(p => p.id === id); }
+function getTask(id)    { return S.state.tasks.find(t => t.id === id); }
+function getMember(id)  { return S.state.members.find(m => m.id === id); }
+function getClient(id)  { return (S.state.clients || []).find(c => c.id === id); }
 // Etiqueta corta del cliente: nombre + documento (si tiene).
 function clientLabel(c) {
   if (!c) return '';
   const dt = c.docType && c.docType !== '99' ? DOC_TYPE_LABELS[c.docType] || '' : '';
   return dt && c.docNumber ? `${c.name} · ${dt} ${c.docNumber}` : c.name;
 }
-function currentMember(){ return getMember(currentMemberId) || state.members[0]; }
+function currentMember(){ return getMember(S.currentMemberId) || S.state.members[0]; }
 
 function parseMentions(text) {
   const mentions = [];
-  state.members.forEach(m => {
+  S.state.members.forEach(m => {
     const re = new RegExp(`@${m.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
     if (re.test(text)) mentions.push(m.id);
   });
@@ -411,7 +436,7 @@ function parseMentions(text) {
 
 function renderMentions(text) {
   let out = escapeHtml(text);
-  state.members.forEach(m => {
+  S.state.members.forEach(m => {
     const re = new RegExp(`@${m.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
     out = out.replace(re, `<span class="bg-blue-50 text-blue-700 rounded px-1">@${escapeHtml(m.name)}</span>`);
   });
@@ -419,25 +444,25 @@ function renderMentions(text) {
 }
 
 function unreadCount() {
-  return state.notifications.filter(n => n.forMemberId === currentMemberId && !n.read).length;
+  return S.state.notifications.filter(n => n.forMemberId === S.currentMemberId && !n.read).length;
 }
 
 function projectProgress(pid) {
-  const tasks = state.tasks.filter(t => t.projectId === pid);
+  const tasks = S.state.tasks.filter(t => t.projectId === pid);
   if (tasks.length === 0) return 0;
   return Math.round(tasks.filter(t => t.status === 'COMPLETED').length / tasks.length * 100);
 }
 
 function pushHistory(taskId, action, from, to) {
-  state.history.push({ id: uid(), taskId, action, from, to, createdAt: new Date().toISOString() });
+  S.state.history.push({ id: uid(), taskId, action, from, to, createdAt: new Date().toISOString() });
 }
 
 function notify(forMemberId, taskId, text) {
-  if (!forMemberId || forMemberId === currentMemberId) return;
-  state.notifications.push({
+  if (!forMemberId || forMemberId === S.currentMemberId) return;
+  S.state.notifications.push({
     id: uid(),
     forMemberId,
-    fromMemberId: currentMemberId,
+    fromMemberId: S.currentMemberId,
     taskId,
     text,
     read: false,
@@ -470,17 +495,16 @@ function showToast(message, type = 'info', duration = 4000) {
 // ---- Email (EmailJS) → src/services/email.js (sendNotificationEmail, testEmail; importados arriba) ----
 
 // ---- Drag and drop for projects ----
-let _draggingProjectId = null;
 
 function dragProjectStart(e, projectId) {
-  _draggingProjectId = projectId;
+  S._draggingProjectId = projectId;
   e.dataTransfer.effectAllowed = 'move';
   e.dataTransfer.setData('text/plain', projectId);
   e.currentTarget.classList.add('dragging');
 }
 function dragProjectEnd(e) {
   e.currentTarget.classList.remove('dragging');
-  _draggingProjectId = null;
+  S._draggingProjectId = null;
   document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
 }
 function dragColOver(e) {
@@ -496,7 +520,7 @@ function dragColLeave(e) {
 function dropProject(e, status) {
   e.preventDefault();
   e.currentTarget.classList.remove('drag-over');
-  const pid = _draggingProjectId || e.dataTransfer.getData('text/plain');
+  const pid = S._draggingProjectId || e.dataTransfer.getData('text/plain');
   if (!pid) return;
   const p = getProject(pid);
   if (!p || p.status === status) return;
@@ -512,7 +536,7 @@ function dropProject(e, status) {
 function renderNav() {
   const nav = document.getElementById('nav');
   nav.innerHTML = NAV.map(n => `
-    <div class="nav-item ${currentView === n.key ? 'active' : ''}" onclick="go('${n.key}')">
+    <div class="nav-item ${S.currentView === n.key ? 'active' : ''}" onclick="go('${n.key}')">
       <span class="w-5 text-center opacity-70">${n.icon}</span>
       <span>${n.label}</span>
     </div>
@@ -532,8 +556,8 @@ function renderNav() {
 }
 
 function go(view) {
-  currentView = view;
-  currentTaskId = null;
+  S.currentView = view;
+  S.currentTaskId = null;
   renderNav();
   render();
   closeSidebar();
@@ -563,7 +587,7 @@ function render() {
     team: renderTeam,
     guide: renderGuide,
   };
-  main.innerHTML = views[currentView]();
+  main.innerHTML = views[S.currentView]();
   attachViewEvents();
 }
 
@@ -583,15 +607,15 @@ function viewHeader(title, subtitle, actions = '') {
 // ============ HOME ============
 function renderHome() {
   const today = todayISO();
-  const me = currentMemberId;
-  const myTasks = state.tasks.filter(t => t.status !== 'COMPLETED' && (!t.assigneeId || t.assigneeId === me));
+  const me = S.currentMemberId;
+  const myTasks = S.state.tasks.filter(t => t.status !== 'COMPLETED' && (!t.assigneeId || t.assigneeId === me));
   const dueToday = myTasks.filter(t => t.dueDate && t.dueDate <= today);
   const thisWeek = myTasks.filter(t => {
     if (!t.dueDate) return false;
     const diff = daysBetween(today, t.dueDate);
     return diff >= 0 && diff <= 7;
   });
-  const blocked = state.tasks.filter(t => t.status === 'BLOCKED' && (!t.assigneeId || t.assigneeId === me));
+  const blocked = S.state.tasks.filter(t => t.status === 'BLOCKED' && (!t.assigneeId || t.assigneeId === me));
   const greeting = new Date().getHours() < 12 ? 'Buen día' : new Date().getHours() < 19 ? 'Buenas tardes' : 'Buenas noches';
 
   return `
@@ -628,8 +652,8 @@ function renderHome() {
 
       <section class="grid grid-cols-4 gap-4">
         ${statCard('Tareas activas', myTasks.length)}
-        ${statCard('Proyectos activos', state.projects.filter(p=>p.status==='ACTIVE').length)}
-        ${statCard('Clientes', state.clients.length)}
+        ${statCard('Proyectos activos', S.state.projects.filter(p=>p.status==='ACTIVE').length)}
+        ${statCard('Clientes', S.state.clients.length)}
         ${statCard('Balance del mes', fmtMoney(monthBalance()))}
       </section>
 
@@ -665,16 +689,14 @@ function taskRow(t) {
 }
 
 // ============ TASKS ============
-let tasksViewMode = 'kanban';
-let tasksFilter = { projectId: '', status: '' };
 
 function renderTasks() {
   return `
-    ${viewHeader('Tareas', `${state.tasks.length} en total`,
+    ${viewHeader('Tareas', `${S.state.tasks.length} en total`,
       `<div class="flex gap-1 bg-gray-100 rounded-lg p-1">
-         <button class="px-3 py-1 rounded-md text-sm ${tasksViewMode==='list'?'bg-white shadow-sm':''}" onclick="tasksViewMode='list'; render()">Lista</button>
-         <button class="px-3 py-1 rounded-md text-sm ${tasksViewMode==='kanban'?'bg-white shadow-sm':''}" onclick="tasksViewMode='kanban'; render()">Tablero</button>
-         <button class="px-3 py-1 rounded-md text-sm ${tasksViewMode==='gantt'?'bg-white shadow-sm':''}" onclick="tasksViewMode='gantt'; render()">Gantt</button>
+         <button class="px-3 py-1 rounded-md text-sm ${S.tasksViewMode==='list'?'bg-white shadow-sm':''}" onclick="tasksViewMode='list'; render()">Lista</button>
+         <button class="px-3 py-1 rounded-md text-sm ${S.tasksViewMode==='kanban'?'bg-white shadow-sm':''}" onclick="tasksViewMode='kanban'; render()">Tablero</button>
+         <button class="px-3 py-1 rounded-md text-sm ${S.tasksViewMode==='gantt'?'bg-white shadow-sm':''}" onclick="tasksViewMode='gantt'; render()">Gantt</button>
        </div>
        <button class="btn-primary" onclick="openTaskModal()">+ Nueva</button>`
     )}
@@ -682,20 +704,20 @@ function renderTasks() {
     <div class="px-4 md:px-10 pb-4 flex gap-2">
       <select class="input max-w-xs" onchange="tasksFilter.projectId=this.value; render()">
         <option value="">Todos los proyectos</option>
-        ${state.projects.map(p => `<option value="${p.id}" ${tasksFilter.projectId===p.id?'selected':''}>${escapeHtml(p.name)}</option>`).join('')}
+        ${S.state.projects.map(p => `<option value="${p.id}" ${S.tasksFilter.projectId===p.id?'selected':''}>${escapeHtml(p.name)}</option>`).join('')}
       </select>
     </div>
 
     <div class="px-4 md:px-10 pb-10">
-      ${tasksViewMode === 'kanban' ? renderKanban() : tasksViewMode === 'gantt' ? renderGantt() : renderTaskList()}
+      ${S.tasksViewMode === 'kanban' ? renderKanban() : S.tasksViewMode === 'gantt' ? renderGantt() : renderTaskList()}
     </div>
   `;
 }
 
 function filteredTasks() {
-  return state.tasks.filter(t =>
-    (!tasksFilter.projectId || t.projectId === tasksFilter.projectId) &&
-    (!tasksFilter.status    || t.status    === tasksFilter.status)
+  return S.state.tasks.filter(t =>
+    (!S.tasksFilter.projectId || t.projectId === S.tasksFilter.projectId) &&
+    (!S.tasksFilter.status    || t.status    === S.tasksFilter.status)
   );
 }
 
@@ -857,39 +879,39 @@ function renderGantt() {
 }
 
 // ============ PROJECTS ============
-let projectsViewMode = 'kanban'; // 'kanban' | 'list'
-let projectsListStatus = '';      // filter for list view
-let projectsTypeFilter = '';      // 'SYSTEM' | 'WEB' | 'OTHER' | ''
+ // 'kanban' | 'list'
+      // filter for list view
+      // 'SYSTEM' | 'WEB' | 'OTHER' | ''
 
 function getFilteredProjectsByType() {
-  return projectsTypeFilter
-    ? state.projects.filter(p => getProjectTypes(p).includes(projectsTypeFilter))
-    : state.projects;
+  return S.projectsTypeFilter
+    ? S.state.projects.filter(p => getProjectTypes(p).includes(S.projectsTypeFilter))
+    : S.state.projects;
 }
 
 function renderProjects() {
   return `
-    ${viewHeader('Proyectos', `${state.projects.length} en total`,
+    ${viewHeader('Proyectos', `${S.state.projects.length} en total`,
       `<div class="flex gap-1 bg-gray-100 rounded-lg p-1">
-         <button class="px-3 py-1 rounded-md text-sm ${projectsViewMode==='kanban'?'bg-white shadow-sm font-medium':''}" onclick="projectsViewMode='kanban'; render()">Kanban</button>
-         <button class="px-3 py-1 rounded-md text-sm ${projectsViewMode==='list'?'bg-white shadow-sm font-medium':''}" onclick="projectsViewMode='list'; render()">Lista</button>
+         <button class="px-3 py-1 rounded-md text-sm ${S.projectsViewMode==='kanban'?'bg-white shadow-sm font-medium':''}" onclick="projectsViewMode='kanban'; render()">Kanban</button>
+         <button class="px-3 py-1 rounded-md text-sm ${S.projectsViewMode==='list'?'bg-white shadow-sm font-medium':''}" onclick="projectsViewMode='list'; render()">Lista</button>
        </div>
        <button class="btn-primary" onclick="openProjectModal()">+ Nuevo</button>`)}
 
     <div class="px-4 md:px-10 pb-4 flex flex-wrap gap-2">
-      <button onclick="projectsTypeFilter=''; render()" class="chip ${projectsTypeFilter===''?'bg-black text-white':'bg-gray-100 text-gray-700'} py-1.5 px-3 cursor-pointer">Todos (${state.projects.length})</button>
+      <button onclick="projectsTypeFilter=''; render()" class="chip ${S.projectsTypeFilter===''?'bg-black text-white':'bg-gray-100 text-gray-700'} py-1.5 px-3 cursor-pointer">Todos (${S.state.projects.length})</button>
       ${PROJECT_TYPE_ORDER.map(k => {
-        const n = state.projects.filter(p => getProjectTypes(p).includes(k)).length;
+        const n = S.state.projects.filter(p => getProjectTypes(p).includes(k)).length;
         if (n === 0) return '';
         const t = PROJECT_TYPE[k];
-        return `<button onclick="projectsTypeFilter='${k}'; render()" class="chip ${projectsTypeFilter===k?'bg-black text-white':'bg-gray-100 text-gray-700'} py-1.5 px-3 cursor-pointer">${t.label} (${n})</button>`;
+        return `<button onclick="projectsTypeFilter='${k}'; render()" class="chip ${S.projectsTypeFilter===k?'bg-black text-white':'bg-gray-100 text-gray-700'} py-1.5 px-3 cursor-pointer">${t.label} (${n})</button>`;
       }).join('')}
     </div>
 
     <div class="px-4 md:px-10 pb-10">
-      ${state.projects.length === 0
+      ${S.state.projects.length === 0
         ? `<div class="card p-10 text-center text-gray-400">Sin proyectos. Creá el primero.</div>`
-        : (projectsViewMode === 'kanban' ? renderProjectsKanban() : renderProjectsList())
+        : (S.projectsViewMode === 'kanban' ? renderProjectsKanban() : renderProjectsList())
       }
     </div>
   `;
@@ -927,7 +949,7 @@ function renderProjectsKanban() {
 
 function renderProjectsList() {
   const all = getFilteredProjectsByType();
-  const filtered = projectsListStatus ? all.filter(p => p.status === projectsListStatus) : all;
+  const filtered = S.projectsListStatus ? all.filter(p => p.status === S.projectsListStatus) : all;
   const sorted = [...filtered].sort((a, b) => {
     const orderA = PROJECT_STATUS_ORDER.indexOf(a.status);
     const orderB = PROJECT_STATUS_ORDER.indexOf(b.status);
@@ -937,12 +959,12 @@ function renderProjectsList() {
 
   return `
     <div class="flex flex-wrap gap-2 mb-3">
-      <button onclick="projectsListStatus=''; render()" class="chip ${projectsListStatus===''?'bg-black text-white':'bg-gray-100 text-gray-700'} py-1.5 px-3 cursor-pointer">Todos (${state.projects.length})</button>
+      <button onclick="projectsListStatus=''; render()" class="chip ${S.projectsListStatus===''?'bg-black text-white':'bg-gray-100 text-gray-700'} py-1.5 px-3 cursor-pointer">Todos (${S.state.projects.length})</button>
       ${PROJECT_STATUS_ORDER.map(k => {
-        const n = state.projects.filter(p => p.status === k).length;
+        const n = S.state.projects.filter(p => p.status === k).length;
         if (n === 0) return '';
         const sc = PROJECT_STATUS[k];
-        return `<button onclick="projectsListStatus='${k}'; render()" class="chip ${projectsListStatus===k?'bg-black text-white':sc.color} py-1.5 px-3 cursor-pointer">${sc.label} (${n})</button>`;
+        return `<button onclick="projectsListStatus='${k}'; render()" class="chip ${S.projectsListStatus===k?'bg-black text-white':sc.color} py-1.5 px-3 cursor-pointer">${sc.label} (${n})</button>`;
       }).join('')}
     </div>
 
@@ -955,9 +977,9 @@ function renderProjectsList() {
 function projectListRow(p) {
   const s = PROJECT_STATUS[p.status] || PROJECT_STATUS.LEAD;
   const pr = projectProgress(p.id);
-  const taskCount = state.tasks.filter(t => t.projectId === p.id).length;
-  const activeTasks = state.tasks.filter(t => t.projectId === p.id && t.status !== 'COMPLETED').length;
-  const blockedTasks = state.tasks.filter(t => t.projectId === p.id && t.status === 'BLOCKED').length;
+  const taskCount = S.state.tasks.filter(t => t.projectId === p.id).length;
+  const activeTasks = S.state.tasks.filter(t => t.projectId === p.id && t.status !== 'COMPLETED').length;
+  const blockedTasks = S.state.tasks.filter(t => t.projectId === p.id && t.status === 'BLOCKED').length;
   return `
     <div class="p-3 md:p-4 hover:bg-gray-50 cursor-pointer flex items-center gap-3" onclick="openProjectDetail('${p.id}')">
       <span class="w-3 h-3 rounded-full flex-shrink-0" style="background:${p?.color || '#9ca3af'}"></span>
@@ -983,9 +1005,9 @@ function projectListRow(p) {
 
 function projectCard(p) {
   const pr = projectProgress(p.id);
-  const taskCount = state.tasks.filter(t => t.projectId === p.id).length;
-  const activeTasks = state.tasks.filter(t => t.projectId === p.id && t.status !== 'COMPLETED').length;
-  const blockedTasks = state.tasks.filter(t => t.projectId === p.id && t.status === 'BLOCKED').length;
+  const taskCount = S.state.tasks.filter(t => t.projectId === p.id).length;
+  const activeTasks = S.state.tasks.filter(t => t.projectId === p.id && t.status !== 'COMPLETED').length;
+  const blockedTasks = S.state.tasks.filter(t => t.projectId === p.id && t.status === 'BLOCKED').length;
   return `
     <div class="task-card draggable"
          draggable="true"
@@ -1119,10 +1141,10 @@ function openProjectDetail(id) {
   const p = getProject(id);
   const s = PROJECT_STATUS[p.status] || PROJECT_STATUS.LEAD;
   const isClosed = p.status === 'DONE' || p.status === 'ARCHIVED';
-  const tasks = state.tasks.filter(t => t.projectId === id);
+  const tasks = S.state.tasks.filter(t => t.projectId === id);
   const completedTasks = tasks.filter(t => t.status === 'COMPLETED');
-  const incomes = state.incomes.filter(i => i.projectId === id).reduce((a,b) => a + Number(b.amount||0), 0);
-  const expenses = state.expenses.filter(e => e.projectId === id).reduce((a,b) => a + Number(b.amount||0), 0);
+  const incomes = S.state.incomes.filter(i => i.projectId === id).reduce((a,b) => a + Number(b.amount||0), 0);
+  const expenses = S.state.expenses.filter(e => e.projectId === id).reduce((a,b) => a + Number(b.amount||0), 0);
 
   const totalHrs = completedTasks.reduce((a,t) => a + (Number(t.actualHrs)||0), 0);
 
@@ -1240,11 +1262,11 @@ function openProjectDetail(id) {
 }
 
 // ============ PROMPT GENERATOR ============
-let promptStyle = 'organize'; // 'organize' | 'execute' | 'review'
+ // 'organize' | 'execute' | 'review'
 
 function generateProjectPrompt(projectId, style) {
   const p = getProject(projectId);
-  const allTasks = state.tasks.filter(t => t.projectId === projectId && t.status !== 'COMPLETED');
+  const allTasks = S.state.tasks.filter(t => t.projectId === projectId && t.status !== 'COMPLETED');
   const blocked = allTasks.filter(t => t.status === 'BLOCKED');
   const inReview = allTasks.filter(t => t.status === 'IN_REVIEW');
   const inProgress = allTasks.filter(t => t.status === 'IN_PROGRESS');
@@ -1325,7 +1347,7 @@ function generateProjectPrompt(projectId, style) {
 }
 
 function openPromptModal(projectId) {
-  const text = generateProjectPrompt(projectId, promptStyle);
+  const text = generateProjectPrompt(projectId, S.promptStyle);
   openModal(`
     <div class="p-6 max-w-2xl">
       <div class="flex items-center justify-between mb-3">
@@ -1334,9 +1356,9 @@ function openPromptModal(projectId) {
       </div>
 
       <div class="flex gap-1 bg-gray-100 rounded-lg p-1 mb-4 w-fit">
-        <button onclick="promptStyle='organize'; openPromptModal('${projectId}')" class="px-3 py-1.5 rounded-md text-xs ${promptStyle==='organize'?'bg-white shadow-sm font-medium':''}">Organizar</button>
-        <button onclick="promptStyle='execute'; openPromptModal('${projectId}')" class="px-3 py-1.5 rounded-md text-xs ${promptStyle==='execute'?'bg-white shadow-sm font-medium':''}">Resolver</button>
-        <button onclick="promptStyle='review'; openPromptModal('${projectId}')" class="px-3 py-1.5 rounded-md text-xs ${promptStyle==='review'?'bg-white shadow-sm font-medium':''}">Revisar</button>
+        <button onclick="promptStyle='organize'; openPromptModal('${projectId}')" class="px-3 py-1.5 rounded-md text-xs ${S.promptStyle==='organize'?'bg-white shadow-sm font-medium':''}">Organizar</button>
+        <button onclick="promptStyle='execute'; openPromptModal('${projectId}')" class="px-3 py-1.5 rounded-md text-xs ${S.promptStyle==='execute'?'bg-white shadow-sm font-medium':''}">Resolver</button>
+        <button onclick="promptStyle='review'; openPromptModal('${projectId}')" class="px-3 py-1.5 rounded-md text-xs ${S.promptStyle==='review'?'bg-white shadow-sm font-medium':''}">Revisar</button>
       </div>
 
       <p class="text-xs text-gray-500 mb-2">Editalo si querés antes de copiarlo.</p>
@@ -1367,8 +1389,6 @@ function copyPromptText() {
 }
 
 // ============ DOCUMENTS & RESOURCES ============
-let docsFilter = '';
-let resourcesFilter = '';
 
 function faviconFor(url) {
   try {
@@ -1438,29 +1458,29 @@ function renderDocuments() {
   return renderLinkPanel(
     'Documentos',
     'Contratos, propuestas, plantillas y guías internas',
-    state.documents,
-    docsFilter,
+    S.state.documents,
+    S.docsFilter,
     DOC_CATEGORIES,
     'setDocsFilter',
     'openDocumentModal',
     'openDocumentModal'
   );
 }
-function setDocsFilter(f) { docsFilter = f; }
+function setDocsFilter(f) { S.docsFilter = f; }
 
 function renderResources() {
   return renderLinkPanel(
     'Recursos',
     'Apps, herramientas y links útiles',
-    state.resources,
-    resourcesFilter,
+    S.state.resources,
+    S.resourcesFilter,
     RES_CATEGORIES,
     'setResourcesFilter',
     'openResourceModal',
     'openResourceModal'
   );
 }
-function setResourcesFilter(f) { resourcesFilter = f; }
+function setResourcesFilter(f) { S.resourcesFilter = f; }
 
 // ---- Generic link modal ----
 function openLinkModal(title, item, categories, onSave, onDelete, id) {
@@ -1500,52 +1520,51 @@ function openLinkModal(title, item, categories, onSave, onDelete, id) {
 }
 
 function openDocumentModal(id) {
-  const doc = id ? state.documents.find(d => d.id === id) : { id: null, title: '', url: '', category: DOC_CATEGORIES[0], description: '' };
+  const doc = id ? S.state.documents.find(d => d.id === id) : { id: null, title: '', url: '', category: DOC_CATEGORIES[0], description: '' };
   openLinkModal('Documento', doc, DOC_CATEGORIES, 'saveDocument', 'deleteDocument', id);
 }
 function saveDocument(e) {
   e.preventDefault();
   const data = Object.fromEntries(new FormData(e.target).entries());
   if (data.id) {
-    Object.assign(state.documents.find(d => d.id === data.id), data);
+    Object.assign(S.state.documents.find(d => d.id === data.id), data);
   } else {
-    state.documents.push({ ...data, id: uid(), createdAt: new Date().toISOString() });
+    S.state.documents.push({ ...data, id: uid(), createdAt: new Date().toISOString() });
   }
   save(); closeModal(); render();
 }
 function deleteDocument(id) {
   if (!confirm('¿Eliminar documento?')) return;
-  state.documents = state.documents.filter(d => d.id !== id);
+  S.state.documents = S.state.documents.filter(d => d.id !== id);
   save(); closeModal(); render();
 }
 
 function openResourceModal(id) {
-  const res = id ? state.resources.find(r => r.id === id) : { id: null, title: '', url: '', category: RES_CATEGORIES[0], description: '' };
+  const res = id ? S.state.resources.find(r => r.id === id) : { id: null, title: '', url: '', category: RES_CATEGORIES[0], description: '' };
   openLinkModal('Recurso', res, RES_CATEGORIES, 'saveResource', 'deleteResource', id);
 }
 function saveResource(e) {
   e.preventDefault();
   const data = Object.fromEntries(new FormData(e.target).entries());
   if (data.id) {
-    Object.assign(state.resources.find(r => r.id === data.id), data);
+    Object.assign(S.state.resources.find(r => r.id === data.id), data);
   } else {
-    state.resources.push({ ...data, id: uid(), createdAt: new Date().toISOString() });
+    S.state.resources.push({ ...data, id: uid(), createdAt: new Date().toISOString() });
   }
   save(); closeModal(); render();
 }
 function deleteResource(id) {
   if (!confirm('¿Eliminar recurso?')) return;
-  state.resources = state.resources.filter(r => r.id !== id);
+  S.state.resources = S.state.resources.filter(r => r.id !== id);
   save(); closeModal(); render();
 }
 
 // ============ PRESUPUESTOS ============
-let budgetsFilterStatus = '';
 
 function renderBudgets() {
-  const all = (state.budgets || []);
-  const filtered = budgetsFilterStatus
-    ? all.filter(b => b.status === budgetsFilterStatus)
+  const all = (S.state.budgets || []);
+  const filtered = S.budgetsFilterStatus
+    ? all.filter(b => b.status === S.budgetsFilterStatus)
     : all;
   const sorted = filtered.slice().sort((a,b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
 
@@ -1555,7 +1574,7 @@ function renderBudgets() {
   const pipelineUSD = all.reduce((sum, b) => {
     if (b.status === 'REJECTED' || b.status === 'EXPIRED') return sum;
     const est = estimateBudget(b);
-    const rate = Number(state.exchangeRate) || 1200;
+    const rate = Number(S.state.exchangeRate) || 1200;
     const usd = b.currency === 'ARS' ? est.finalRevenue / rate : est.finalRevenue;
     return sum + usd;
   }, 0);
@@ -1575,12 +1594,12 @@ function renderBudgets() {
       </div>
 
       <div class="flex flex-wrap gap-2">
-        <button onclick="budgetsFilterStatus=''; render()" class="chip ${budgetsFilterStatus===''?'bg-black text-white':'bg-gray-100 text-gray-700'} py-1.5 px-3 cursor-pointer">Todos (${totalBudgets})</button>
+        <button onclick="budgetsFilterStatus=''; render()" class="chip ${S.budgetsFilterStatus===''?'bg-black text-white':'bg-gray-100 text-gray-700'} py-1.5 px-3 cursor-pointer">Todos (${totalBudgets})</button>
         ${BUDGET_STATUS_ORDER.map(k => {
           const n = all.filter(b => b.status === k).length;
           if (n === 0) return '';
           const s = BUDGET_STATUS[k];
-          return `<button onclick="budgetsFilterStatus='${k}'; render()" class="chip ${budgetsFilterStatus===k?'bg-black text-white':s.color} py-1.5 px-3 cursor-pointer">${s.label} (${n})</button>`;
+          return `<button onclick="budgetsFilterStatus='${k}'; render()" class="chip ${S.budgetsFilterStatus===k?'bg-black text-white':s.color} py-1.5 px-3 cursor-pointer">${s.label} (${n})</button>`;
         }).join('')}
       </div>
 
@@ -1626,13 +1645,12 @@ function budgetRow(b) {
   `;
 }
 
-let _budgetItemCounter = 0;
 
 function openBudgetModal(id) {
-  const existing = id ? (state.budgets || []).find(x => x.id === id) : null;
+  const existing = id ? (S.state.budgets || []).find(x => x.id === id) : null;
   const b = existing ? structuredClone(existing) : {
     id: null,
-    code: `PRES-${new Date().getFullYear()}-${String(((state.budgets || []).length + 1)).padStart(4, '0')}`,
+    code: `PRES-${new Date().getFullYear()}-${String(((S.state.budgets || []).length + 1)).padStart(4, '0')}`,
     clientName: '',
     categories: ['WEB'],
     pricingModel: 'FIXED',
@@ -1646,7 +1664,7 @@ function openBudgetModal(id) {
   };
 
   const activeCats = getBudgetCategories(b);
-  _budgetItemCounter = 0;
+  S._budgetItemCounter = 0;
 
   openModal(`
     <div class="p-6">
@@ -1857,7 +1875,7 @@ function addSuggestedModule(suggestion) {
 }
 
 function budgetItemHTML(it) {
-  const idx = _budgetItemCounter++;
+  const idx = S._budgetItemCounter++;
   const complexity = it.complexity || 'MEDIUM';
   const cmpx = COMPLEXITY_LEVELS.find(c => c.key === complexity) || COMPLEXITY_LEVELS[2];
   const hoursDev = it.hoursDev || cmpx.default;
@@ -2081,19 +2099,19 @@ function saveBudget(e) {
     if (!confirm('No agregaste ningún módulo. ¿Guardar igual?')) return;
   }
 
-  state.budgets = state.budgets || [];
+  S.state.budgets = S.state.budgets || [];
 
   if (b.id) {
-    const existing = state.budgets.find(x => x.id === b.id);
+    const existing = S.state.budgets.find(x => x.id === b.id);
     if (existing) {
       Object.assign(existing, b, { updatedAt: new Date().toISOString() });
     }
   } else {
-    state.budgets.push({
+    S.state.budgets.push({
       ...b,
       id: uid(),
       createdAt: new Date().toISOString(),
-      createdBy: currentMemberId,
+      createdBy: S.currentMemberId,
     });
   }
 
@@ -2104,10 +2122,10 @@ function saveBudget(e) {
 }
 
 function deleteBudget(id) {
-  const b = (state.budgets || []).find(x => x.id === id);
+  const b = (S.state.budgets || []).find(x => x.id === id);
   if (!b) return;
   if (!confirm(`¿Eliminar el presupuesto "${b.clientName}"?\n\nEsta acción no se puede deshacer.`)) return;
-  state.budgets = state.budgets.filter(x => x.id !== id);
+  S.state.budgets = S.state.budgets.filter(x => x.id !== id);
   save();
   closeModal();
   render();
@@ -2322,7 +2340,7 @@ function generateBudgetPdf(mode) {
     return;
   }
   // Si el budget existe en state, usamos esa versión (con createdAt etc)
-  const existing = b.id ? (state.budgets || []).find(x => x.id === b.id) : null;
+  const existing = b.id ? (S.state.budgets || []).find(x => x.id === b.id) : null;
   const final = existing ? { ...existing, ...b } : { ...b, createdAt: new Date().toISOString() };
   openBudgetPdfView(final, mode);
 }
@@ -2330,14 +2348,14 @@ function generateBudgetPdf(mode) {
 // ============ TEAM ============
 function renderTeam() {
   return `
-    ${viewHeader('Equipo', `${state.members.length} miembros`,
+    ${viewHeader('Equipo', `${S.state.members.length} miembros`,
       `<button class="btn-primary" onclick="openMemberModal()">+ Miembro</button>`)}
 
     <div class="px-4 md:px-10 pb-10 max-w-2xl space-y-6">
       <div class="card divide-y divide-gray-100">
-        ${state.members.map(m => {
-          const tasks = state.tasks.filter(t => t.assigneeId === m.id && t.status !== 'COMPLETED').length;
-          const isMe = m.id === currentMemberId;
+        ${S.state.members.map(m => {
+          const tasks = S.state.tasks.filter(t => t.assigneeId === m.id && t.status !== 'COMPLETED').length;
+          const isMe = m.id === S.currentMemberId;
           const hasLogin = !!m.email;
           const role = MEMBER_ROLES.find(r => r.key === m.role);
           const cap = Number(m.weeklyCapacityHrs) || 30;
@@ -2389,8 +2407,8 @@ function renderSecuritySettings() {
 }
 
 function renderFinanceSettings() {
-  const updatedLabel = state.exchangeRateUpdatedAt
-    ? new Date(state.exchangeRateUpdatedAt).toLocaleString('es-AR', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })
+  const updatedLabel = S.state.exchangeRateUpdatedAt
+    ? new Date(S.state.exchangeRateUpdatedAt).toLocaleString('es-AR', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })
     : 'nunca';
   return `
     <div class="card p-5">
@@ -2402,16 +2420,16 @@ function renderFinanceSettings() {
           <div>
             <label class="text-xs text-gray-500">Moneda base</label>
             <select name="defaultCurrency" class="input">
-              <option value="ARS" ${(state.defaultCurrency||'ARS')==='ARS'?'selected':''}>ARS (Pesos)</option>
-              <option value="USD" ${state.defaultCurrency==='USD'?'selected':''}>USD (Dólares)</option>
+              <option value="ARS" ${(S.state.defaultCurrency||'ARS')==='ARS'?'selected':''}>ARS (Pesos)</option>
+              <option value="USD" ${S.state.defaultCurrency==='USD'?'selected':''}>USD (Dólares)</option>
             </select>
           </div>
           <div>
-            <label class="text-xs text-gray-500">Cotización USD ${state.exchangeRateSource==='bluelytics'?'<span class="text-green-700">· Blue auto</span>':''}</label>
+            <label class="text-xs text-gray-500">Cotización USD ${S.state.exchangeRateSource==='bluelytics'?'<span class="text-green-700">· Blue auto</span>':''}</label>
             <button type="button" onclick="openExchangeRateModal()" class="input w-full text-left flex items-center justify-between hover:border-black transition">
               <span class="flex items-center gap-2">
-                ${state.exchangeRateSource==='bluelytics'?'<span class="w-2 h-2 rounded-full bg-green-500"></span>':''}
-                <span class="font-semibold">$${(state.exchangeRate || 1200).toLocaleString('es-AR')}</span>
+                ${S.state.exchangeRateSource==='bluelytics'?'<span class="w-2 h-2 rounded-full bg-green-500"></span>':''}
+                <span class="font-semibold">$${(S.state.exchangeRate || 1200).toLocaleString('es-AR')}</span>
               </span>
               <span class="text-xs text-gray-500">${updatedLabel}</span>
             </button>
@@ -2420,12 +2438,12 @@ function renderFinanceSettings() {
 
         <div>
           <label class="text-xs text-gray-500">WhatsApp de Pragma <span class="text-gray-400">(remitente del recordatorio)</span></label>
-          <input type="tel" name="pragmaPhone" class="input" value="${escapeAttr(state.pragmaPhone || '')}" placeholder="+54 9 11 5555-5555" />
+          <input type="tel" name="pragmaPhone" class="input" value="${escapeAttr(S.state.pragmaPhone || '')}" placeholder="+54 9 11 5555-5555" />
         </div>
 
         <div>
           <label class="text-xs text-gray-500">Plantilla del mensaje de cobro</label>
-          <textarea id="templateTextarea" name="paymentMessageTemplate" class="input font-mono text-xs" rows="7" oninput="updateTemplatePreview()">${escapeHtml(state.paymentMessageTemplate || '')}</textarea>
+          <textarea id="templateTextarea" name="paymentMessageTemplate" class="input font-mono text-xs" rows="7" oninput="updateTemplatePreview()">${escapeHtml(S.state.paymentMessageTemplate || '')}</textarea>
           <p class="text-[11px] text-gray-500 mt-1.5 mb-2">Click una variable para insertarla en el cursor:</p>
           <div class="flex flex-wrap gap-1.5">
             ${PAYMENT_VARS.map(v => `
@@ -2439,7 +2457,7 @@ function renderFinanceSettings() {
 
         <div class="bg-gray-50 rounded-lg p-3">
           <div class="text-xs text-gray-500 mb-1.5 uppercase tracking-wider font-semibold">Vista previa</div>
-          <div id="templatePreview" class="text-sm text-gray-800 whitespace-pre-wrap font-mono leading-relaxed">${escapeHtml(getTemplatePreview(state.paymentMessageTemplate || ''))}</div>
+          <div id="templatePreview" class="text-sm text-gray-800 whitespace-pre-wrap font-mono leading-relaxed">${escapeHtml(getTemplatePreview(S.state.paymentMessageTemplate || ''))}</div>
           <div class="text-[11px] text-gray-400 mt-2">Con datos de ejemplo</div>
         </div>
 
@@ -2466,8 +2484,8 @@ function insertTemplateVar(key) {
 function getTemplatePreview(tpl) {
   // Sample: simulamos una mensualidad de US$20 a la cotización actual
   const sampleAmountUSD = 20;
-  const base = state.defaultCurrency || 'ARS';
-  const rate = Number(state.exchangeRate) || 1200;
+  const base = S.state.defaultCurrency || 'ARS';
+  const rate = Number(S.state.exchangeRate) || 1200;
   const sampleInBase = base === 'ARS' ? sampleAmountUSD * rate : sampleAmountUSD;
   const sample = {
     name: 'Juan Pérez',
@@ -2501,16 +2519,16 @@ function updateTemplatePreview() {
 function saveFinanceSettings(e) {
   e.preventDefault();
   const data = Object.fromEntries(new FormData(e.target).entries());
-  state.defaultCurrency = data.defaultCurrency || 'ARS';
-  state.pragmaPhone = data.pragmaPhone || '';
-  state.paymentMessageTemplate = data.paymentMessageTemplate || '';
+  S.state.defaultCurrency = data.defaultCurrency || 'ARS';
+  S.state.pragmaPhone = data.pragmaPhone || '';
+  S.state.paymentMessageTemplate = data.paymentMessageTemplate || '';
   save();
   showToast('Configuración guardada', 'success');
   render();
 }
 
 function renderEmailSettings() {
-  const cfg = state.emailConfig || {};
+  const cfg = S.state.emailConfig || {};
   return `
     <div class="card p-5">
       <div class="flex items-center justify-between mb-3">
@@ -2553,7 +2571,7 @@ function renderEmailSettings() {
 function saveEmailConfig(e) {
   e.preventDefault();
   const data = Object.fromEntries(new FormData(e.target).entries());
-  state.emailConfig = {
+  S.state.emailConfig = {
     enabled: data.enabled === 'on',
     serviceId: data.serviceId || '',
     templateId: data.templateId || '',
@@ -2605,7 +2623,7 @@ function openMemberModal(id) {
         </div>
         <div><label class="text-xs text-gray-500">Color</label><input type="color" name="color" class="input h-10" value="${m.color}" /></div>
         <div class="flex justify-between pt-3">
-          <div>${id && id !== currentMemberId && state.members.length > 1 ? `<button type="button" class="btn-ghost text-red-600 text-sm" onclick="deleteMember('${id}')">Eliminar</button>` : ''}</div>
+          <div>${id && id !== S.currentMemberId && S.state.members.length > 1 ? `<button type="button" class="btn-ghost text-red-600 text-sm" onclick="deleteMember('${id}')">Eliminar</button>` : ''}</div>
           <div class="flex gap-2">
             <button type="button" class="btn-ghost" onclick="closeModal()">Cancelar</button>
             <button type="submit" class="btn-primary">Guardar</button>
@@ -2621,31 +2639,31 @@ function saveMember(e) {
   const data = Object.fromEntries(new FormData(e.target).entries());
   if (data.id) {
     Object.assign(getMember(data.id), data);
-    if (data.id === currentMemberId) state.user.name = data.name;
+    if (data.id === S.currentMemberId) S.state.user.name = data.name;
   } else {
-    state.members.push({ ...data, id: uid() });
+    S.state.members.push({ ...data, id: uid() });
   }
   save(); closeModal(); render();
 }
 
 function deleteMember(id) {
-  if (id === currentMemberId) {
+  if (id === S.currentMemberId) {
     alert('No podés eliminarte a vos mismo. Hacé logout primero o pedile a otro miembro que te elimine.');
     return;
   }
   const m = getMember(id);
   if (!m) return;
-  const activeTasks = state.tasks.filter(t => t.assigneeId === id && t.status !== 'COMPLETED').length;
+  const activeTasks = S.state.tasks.filter(t => t.assigneeId === id && t.status !== 'COMPLETED').length;
   let warning = `¿Eliminar a ${m.name}?`;
   if (activeTasks > 0) warning += `\n\n${activeTasks} tarea${activeTasks>1?'s':''} activa${activeTasks>1?'s':''} queda${activeTasks>1?'n':''} sin asignar.`;
   if (m.email) warning += `\n\n⚠ ${m.name} tiene email asociado (${m.email}). Si vuelve a loguearse con ese email, se va a re-crear el miembro. Para evitarlo, borrá también el usuario desde Supabase → Authentication → Users.`;
   if (!confirm(warning)) return;
 
-  state.members = state.members.filter(m => m.id !== id);
-  state.tasks.forEach(t => { if (t.assigneeId === id) t.assigneeId = null; });
+  S.state.members = S.state.members.filter(m => m.id !== id);
+  S.state.tasks.forEach(t => { if (t.assigneeId === id) t.assigneeId = null; });
   // Limpiar comentarios huérfanos? No — los dejamos para mantener historial, sólo no resuelven al miembro.
   // Limpiar notificaciones dirigidas al eliminado
-  state.notifications = (state.notifications || []).filter(n => n.forMemberId !== id);
+  S.state.notifications = (S.state.notifications || []).filter(n => n.forMemberId !== id);
   save();
   closeModal();
   render();
@@ -2676,46 +2694,43 @@ function openMemberPicker() {
 }
 
 // ============ FINANCE ============
-let financeMode  = 'month';                                 // 'month' | 'year' | 'range'
-let financeMonth = new Date().toISOString().slice(0,7);     // YYYY-MM
-let financeYear  = String(new Date().getFullYear());
-let financeFrom  = new Date(new Date().getFullYear(), new Date().getMonth() - 2, 1).toISOString().slice(0,10);
-let financeTo    = new Date().toISOString().slice(0,10);
+                                 // 'month' | 'year' | 'range'
+     // YYYY-MM
 
 // lastDayOfMonth, monthsBetween → src/utils/helpers.js (importados arriba).
 
 // MONTH_NAMES_SHORT, MONTH_NAMES_FULL → src/core/constants.js (importados arriba).
 
 function getFinanceRange() {
-  if (financeMode === 'month') {
-    const [y, m] = financeMonth.split('-').map(Number);
-    return { from: financeMonth + '-01', to: lastDayOfMonth(financeMonth), label: `${MONTH_NAMES_FULL[m-1]} ${y}` };
+  if (S.financeMode === 'month') {
+    const [y, m] = S.financeMonth.split('-').map(Number);
+    return { from: S.financeMonth + '-01', to: lastDayOfMonth(S.financeMonth), label: `${MONTH_NAMES_FULL[m-1]} ${y}` };
   }
-  if (financeMode === 'year') {
-    return { from: `${financeYear}-01-01`, to: `${financeYear}-12-31`, label: `Año ${financeYear}` };
+  if (S.financeMode === 'year') {
+    return { from: `${S.financeYear}-01-01`, to: `${S.financeYear}-12-31`, label: `Año ${S.financeYear}` };
   }
-  return { from: financeFrom, to: financeTo, label: `${fmt(financeFrom)} → ${fmt(financeTo)}` };
+  return { from: S.financeFrom, to: S.financeTo, label: `${fmt(S.financeFrom)} → ${fmt(S.financeTo)}` };
 }
 
 function isMonthCharged(projectId, month) {
-  return (state.recurringChargeLog || []).some(r => r.projectId === projectId && r.month === month);
+  return (S.state.recurringChargeLog || []).some(r => r.projectId === projectId && r.month === month);
 }
 function getChargeRecord(projectId, month) {
-  return (state.recurringChargeLog || []).find(r => r.projectId === projectId && r.month === month);
+  return (S.state.recurringChargeLog || []).find(r => r.projectId === projectId && r.month === month);
 }
 function toggleMonthCharged(projectId, month) {
   if (isMonthCharged(projectId, month)) {
-    state.recurringChargeLog = state.recurringChargeLog.filter(r => !(r.projectId === projectId && r.month === month));
+    S.state.recurringChargeLog = S.state.recurringChargeLog.filter(r => !(r.projectId === projectId && r.month === month));
   } else {
-    const rate = Number(state.exchangeRate) || 1200;
-    state.recurringChargeLog.push({
+    const rate = Number(S.state.exchangeRate) || 1200;
+    S.state.recurringChargeLog.push({
       id: uid(),
       projectId,
       month,
       chargedAt: new Date().toISOString(),
-      chargedBy: currentMemberId,
+      chargedBy: S.currentMemberId,
       exchangeRate: rate,
-      exchangeRateSource: state.exchangeRateSource || 'manual',
+      exchangeRateSource: S.state.exchangeRateSource || 'manual',
     });
     const p = getProject(projectId);
     const inAR = (p && p.monthlyFeeCurrency === 'USD') ? ` · cotización $${rate.toLocaleString('es-AR')}` : '';
@@ -2727,7 +2742,7 @@ function toggleMonthCharged(projectId, month) {
 function getAutoIncomes(month) {
   // Ingresos virtuales a partir de proyectos ACTIVE_RECURRING con mensualidad
   const out = [];
-  state.projects.forEach(p => {
+  S.state.projects.forEach(p => {
     if (p.status !== 'ACTIVE_RECURRING' || !p.monthlyFee) return;
     const startMonth = (p.startDate || '').slice(0, 7);
     if (startMonth && startMonth > month) return;
@@ -2737,7 +2752,7 @@ function getAutoIncomes(month) {
     out.push({
       id: `auto-${p.id}-${month}`,
       amount: Number(p.monthlyFee),
-      currency: p.monthlyFeeCurrency || state.defaultCurrency || 'ARS',
+      currency: p.monthlyFeeCurrency || S.state.defaultCurrency || 'ARS',
       date: month + '-01',
       month,
       concept: `Mensualidad · ${p.name}`,
@@ -2757,7 +2772,7 @@ function getAutoIncomesInRange(from, to) {
 
 // ---- Auto expenses (gastos fijos recurrentes) ----
 function getExpensePaymentRecord(expenseId, month) {
-  return (state.recurringExpensePayments || []).find(r => r.expenseId === expenseId && r.month === month);
+  return (S.state.recurringExpensePayments || []).find(r => r.expenseId === expenseId && r.month === month);
 }
 function isExpenseMonthPaid(expenseId, month) {
   return !!getExpensePaymentRecord(expenseId, month);
@@ -2766,7 +2781,7 @@ function isExpenseMonthPaid(expenseId, month) {
 function getAutoExpenses(month) {
   // Genera gastos virtuales para meses posteriores a partir de gastos FIXED con recurring=true
   const out = [];
-  state.expenses.forEach(e => {
+  S.state.expenses.forEach(e => {
     if (e.category !== 'FIXED') return;
     if (e.recurring === false) return;
     const expenseMonth = (e.date || '').slice(0, 7);
@@ -2810,18 +2825,18 @@ function getAllCashFlowPayments(kind) {
 
   if (kind === 'income') {
     // 1. Pagos explícitos sobre ingresos manuales
-    (state.incomePayments || []).forEach(p => {
-      const inc = state.incomes.find(i => i.id === p.incomeId);
+    (S.state.incomePayments || []).forEach(p => {
+      const inc = S.state.incomes.find(i => i.id === p.incomeId);
       if (!inc) return;
       out.push({
         amount: Number(p.amount) || 0,
         currency: p.currency || inc.currency || 'ARS',
         date: (p.date || p.paidAt || '').slice(0, 10),
-        exchangeRate: Number(p.exchangeRate) || Number(inc.exchangeRateAtTime) || Number(state.exchangeRate) || 1200,
+        exchangeRate: Number(p.exchangeRate) || Number(inc.exchangeRateAtTime) || Number(S.state.exchangeRate) || 1200,
       });
     });
     // 2. Pagos sobre mensualidades recurrentes (cobros)
-    (state.recurringChargeLog || []).forEach(r => {
+    (S.state.recurringChargeLog || []).forEach(r => {
       const proj = getProject(r.projectId);
       if (!proj) return;
       const amount = r.amount != null ? Number(r.amount) : Number(proj.monthlyFee || 0);
@@ -2829,53 +2844,53 @@ function getAllCashFlowPayments(kind) {
         amount,
         currency: r.currency || proj.monthlyFeeCurrency || 'ARS',
         date: (r.date || r.chargedAt || '').slice(0, 10),       // ← prefiere r.date
-        exchangeRate: Number(r.exchangeRate) || Number(state.exchangeRate) || 1200,
+        exchangeRate: Number(r.exchangeRate) || Number(S.state.exchangeRate) || 1200,
       });
     });
     // 3. Sintético: ingresos confirmados sin payment log (back-compat con data vieja)
-    state.incomes.forEach(i => {
-      if ((state.incomePayments || []).some(p => p.incomeId === i.id)) return;
+    S.state.incomes.forEach(i => {
+      if ((S.state.incomePayments || []).some(p => p.incomeId === i.id)) return;
       if ((i.status || 'CONFIRMED') !== 'CONFIRMED') return;
       out.push({
         amount: Number(i.amount) || 0,
         currency: i.currency || 'ARS',
         date: ((i.confirmedAt && i.confirmedAt.slice(0,10)) || i.date || '').slice(0, 10),
-        exchangeRate: Number(i.exchangeRateAtTime) || Number(state.exchangeRate) || 1200,
+        exchangeRate: Number(i.exchangeRateAtTime) || Number(S.state.exchangeRate) || 1200,
       });
     });
   } else {
     // 1. Pagos explícitos sobre gastos manuales
-    (state.expensePayments || []).forEach(p => {
-      const exp = state.expenses.find(e => e.id === p.expenseId);
+    (S.state.expensePayments || []).forEach(p => {
+      const exp = S.state.expenses.find(e => e.id === p.expenseId);
       if (!exp) return;
       out.push({
         amount: Number(p.amount) || 0,
         currency: p.currency || exp.currency || 'ARS',
         date: (p.date || p.paidAt || '').slice(0, 10),
-        exchangeRate: Number(p.exchangeRate) || Number(exp.exchangeRateAtTime) || Number(state.exchangeRate) || 1200,
+        exchangeRate: Number(p.exchangeRate) || Number(exp.exchangeRateAtTime) || Number(S.state.exchangeRate) || 1200,
       });
     });
     // 2. Pagos sobre gastos fijos recurrentes
-    (state.recurringExpensePayments || []).forEach(r => {
-      const exp = state.expenses.find(e => e.id === r.expenseId);
+    (S.state.recurringExpensePayments || []).forEach(r => {
+      const exp = S.state.expenses.find(e => e.id === r.expenseId);
       if (!exp) return;
       const amount = r.amount != null ? Number(r.amount) : Number(exp.amount || 0);
       out.push({
         amount,
         currency: r.currency || exp.currency || 'ARS',
         date: (r.date || r.paidAt || '').slice(0, 10),          // ← prefiere r.date
-        exchangeRate: Number(r.exchangeRate) || Number(state.exchangeRate) || 1200,
+        exchangeRate: Number(r.exchangeRate) || Number(S.state.exchangeRate) || 1200,
       });
     });
     // 3. Sintético: gastos pagados sin payment log (back-compat con data vieja)
-    state.expenses.forEach(e => {
-      if ((state.expensePayments || []).some(p => p.expenseId === e.id)) return;
+    S.state.expenses.forEach(e => {
+      if ((S.state.expensePayments || []).some(p => p.expenseId === e.id)) return;
       if ((e.status || 'PAID') !== 'PAID') return;
       out.push({
         amount: Number(e.amount) || 0,
         currency: e.currency || 'ARS',
         date: ((e.paidAt && e.paidAt.slice(0,10)) || e.date || '').slice(0, 10),
-        exchangeRate: Number(e.exchangeRateAtTime) || Number(state.exchangeRate) || 1200,
+        exchangeRate: Number(e.exchangeRateAtTime) || Number(S.state.exchangeRate) || 1200,
       });
     });
   }
@@ -2892,7 +2907,7 @@ function getCarryOversForMonth(viewedMonth) {
   const incomes = [];
 
   // Manual incomes anteriores con saldo parcial
-  state.incomes.forEach(i => {
+  S.state.incomes.forEach(i => {
     if (!i.date) return;
     const m = i.date.slice(0, 7);
     if (m >= viewedMonth) return;
@@ -2903,7 +2918,7 @@ function getCarryOversForMonth(viewedMonth) {
   });
 
   // Recurring incomes (mensualidades) parciales de meses anteriores
-  state.projects.forEach(p => {
+  S.state.projects.forEach(p => {
     if (p.status !== 'ACTIVE_RECURRING' || !p.monthlyFee) return;
     const start = (p.startDate || '').slice(0, 7);
     if (!start) return;
@@ -2924,16 +2939,16 @@ function getCarryOversForMonth(viewedMonth) {
 
 function toggleExpenseMonthPaid(expenseId, month) {
   if (isExpenseMonthPaid(expenseId, month)) {
-    state.recurringExpensePayments = state.recurringExpensePayments.filter(r => !(r.expenseId === expenseId && r.month === month));
+    S.state.recurringExpensePayments = S.state.recurringExpensePayments.filter(r => !(r.expenseId === expenseId && r.month === month));
   } else {
-    state.recurringExpensePayments.push({
+    S.state.recurringExpensePayments.push({
       id: uid(),
       expenseId,
       month,
       paidAt: new Date().toISOString(),
-      paidBy: currentMemberId,
-      exchangeRate: Number(state.exchangeRate) || 1200,
-      exchangeRateSource: state.exchangeRateSource || 'manual',
+      paidBy: S.currentMemberId,
+      exchangeRate: Number(S.state.exchangeRate) || 1200,
+      exchangeRateSource: S.state.exchangeRateSource || 'manual',
     });
     showToast('Gasto marcado como pagado', 'success');
   }
@@ -2941,7 +2956,7 @@ function toggleExpenseMonthPaid(expenseId, month) {
 }
 
 function cancelRecurringExpense(expenseId) {
-  const e = state.expenses.find(x => x.id === expenseId);
+  const e = S.state.expenses.find(x => x.id === expenseId);
   if (!e) return;
   if (!confirm(`¿Dar de baja el gasto fijo "${e.concept}"? Dejará de aparecer desde el próximo mes. Lo histórico se mantiene.`)) return;
   const today = new Date();
@@ -2960,22 +2975,22 @@ function getPaymentSummary(item) {
 
   if (item.auto && item.sourceExpenseId) {
     kind = 'expense_recurring';
-    payments = (state.recurringExpensePayments || []).filter(r => r.expenseId === item.sourceExpenseId && r.month === item.month);
+    payments = (S.state.recurringExpensePayments || []).filter(r => r.expenseId === item.sourceExpenseId && r.month === item.month);
   } else if (item.auto) {
     kind = 'income_recurring';
-    payments = (state.recurringChargeLog || []).filter(r => r.projectId === item.projectId && r.month === item.month);
+    payments = (S.state.recurringChargeLog || []).filter(r => r.projectId === item.projectId && r.month === item.month);
   } else if (item._kind === 'income') {
     kind = 'income';
-    payments = (state.incomePayments || []).filter(p => p.incomeId === item.id);
+    payments = (S.state.incomePayments || []).filter(p => p.incomeId === item.id);
     // Backwards compat: status=CONFIRMED sin pagos = pago completo sintético
     if (payments.length === 0 && (item.status || 'CONFIRMED') === 'CONFIRMED') {
-      payments = [{ id: '__synth__'+item.id, amount: expected, exchangeRate: item.exchangeRateAtTime || state.exchangeRate, synthetic: true, paidAt: item.confirmedAt || item.date }];
+      payments = [{ id: '__synth__'+item.id, amount: expected, exchangeRate: item.exchangeRateAtTime || S.state.exchangeRate, synthetic: true, paidAt: item.confirmedAt || item.date }];
     }
   } else if (item._kind === 'expense') {
     kind = 'expense';
-    payments = (state.expensePayments || []).filter(p => p.expenseId === item.id);
+    payments = (S.state.expensePayments || []).filter(p => p.expenseId === item.id);
     if (payments.length === 0 && (item.status || 'PAID') === 'PAID') {
-      payments = [{ id: '__synth__'+item.id, amount: expected, exchangeRate: item.exchangeRateAtTime || state.exchangeRate, synthetic: true, paidAt: item.paidAt || item.date }];
+      payments = [{ id: '__synth__'+item.id, amount: expected, exchangeRate: item.exchangeRateAtTime || S.state.exchangeRate, synthetic: true, paidAt: item.paidAt || item.date }];
     }
   }
 
@@ -3001,7 +3016,7 @@ function getPaymentChip(item) {
 }
 
 function addPaymentToItem(item, amount, date, note) {
-  const rate = Number(state.exchangeRate) || 1200;
+  const rate = Number(S.state.exchangeRate) || 1200;
   const userDate = date || todayISO();
   const base = {
     id: uid(),
@@ -3009,25 +3024,25 @@ function addPaymentToItem(item, amount, date, note) {
     currency: item.currency || 'ARS',           // ← guarda moneda explícita
     date: userDate,                             // ← fecha que el usuario eligió
     paidAt: new Date().toISOString(),           // ← timestamp de cuando se registró
-    paidBy: currentMemberId,
+    paidBy: S.currentMemberId,
     exchangeRate: rate,
-    exchangeRateSource: state.exchangeRateSource || 'manual',
+    exchangeRateSource: S.state.exchangeRateSource || 'manual',
     note: note || '',
   };
 
   if (item.auto && item.sourceExpenseId) {
-    state.recurringExpensePayments.push({ ...base, expenseId: item.sourceExpenseId, month: item.month });
+    S.state.recurringExpensePayments.push({ ...base, expenseId: item.sourceExpenseId, month: item.month });
   } else if (item.auto) {
     // chargedAt = user-chosen date (no el timestamp). El timestamp queda en paidAt.
-    state.recurringChargeLog.push({ ...base, projectId: item.projectId, month: item.month, chargedAt: userDate, chargedBy: currentMemberId });
+    S.state.recurringChargeLog.push({ ...base, projectId: item.projectId, month: item.month, chargedAt: userDate, chargedBy: S.currentMemberId });
   } else if (item._kind === 'income') {
-    const real = state.incomes.find(x => x.id === item.id);
+    const real = S.state.incomes.find(x => x.id === item.id);
     if (real) real.status = 'CONFIRMED';
-    state.incomePayments.push({ ...base, incomeId: item.id });
+    S.state.incomePayments.push({ ...base, incomeId: item.id });
   } else if (item._kind === 'expense') {
-    const real = state.expenses.find(x => x.id === item.id);
+    const real = S.state.expenses.find(x => x.id === item.id);
     if (real) real.status = 'PAID';
-    state.expensePayments.push({ ...base, expenseId: item.id });
+    S.state.expensePayments.push({ ...base, expenseId: item.id });
   }
   save();
 }
@@ -3036,29 +3051,28 @@ function removePayment(kind, paymentId) {
   if (paymentId.startsWith('__synth__')) {
     // Sintético: viene del status binario. Limpiar el status del item.
     const realId = paymentId.slice('__synth__'.length);
-    const inc = state.incomes.find(x => x.id === realId);
+    const inc = S.state.incomes.find(x => x.id === realId);
     if (inc) { inc.status = 'PENDING'; inc.exchangeRateAtTime = null; inc.confirmedAt = null; }
-    const exp = state.expenses.find(x => x.id === realId);
+    const exp = S.state.expenses.find(x => x.id === realId);
     if (exp) { exp.status = 'PENDING'; exp.exchangeRateAtTime = null; exp.paidAt = null; }
   } else if (kind === 'income_recurring') {
-    state.recurringChargeLog = state.recurringChargeLog.filter(r => r.id !== paymentId);
+    S.state.recurringChargeLog = S.state.recurringChargeLog.filter(r => r.id !== paymentId);
   } else if (kind === 'expense_recurring') {
-    state.recurringExpensePayments = state.recurringExpensePayments.filter(r => r.id !== paymentId);
+    S.state.recurringExpensePayments = S.state.recurringExpensePayments.filter(r => r.id !== paymentId);
   } else if (kind === 'income') {
-    state.incomePayments = state.incomePayments.filter(r => r.id !== paymentId);
+    S.state.incomePayments = S.state.incomePayments.filter(r => r.id !== paymentId);
   } else if (kind === 'expense') {
-    state.expensePayments = state.expensePayments.filter(r => r.id !== paymentId);
+    S.state.expensePayments = S.state.expensePayments.filter(r => r.id !== paymentId);
   }
   save();
 }
 
-let _currentPaymentsItem = null;
 function openPaymentsModal(item) {
-  _currentPaymentsItem = item;
+  S._currentPaymentsItem = item;
   renderPaymentsModal();
 }
 function renderPaymentsModal() {
-  const item = _currentPaymentsItem;
+  const item = S._currentPaymentsItem;
   if (!item) return;
   const s = getPaymentSummary(item);
   const isInc = item._kind === 'income' || (item.auto && !item.sourceExpenseId);
@@ -3156,14 +3170,14 @@ function setPaymentAmount(amount) {
 // Live preview: muestra la conversión a la otra moneda al cambio actual
 // para que el usuario detecte si está cargando en la moneda equivocada
 function updatePaymentConversionPreview() {
-  if (!_currentPaymentsItem) return;
+  if (!S._currentPaymentsItem) return;
   const inp = document.getElementById('paymentAmountInput');
   const preview = document.getElementById('paymentConversionPreview');
   if (!inp || !preview) return;
   const amount = Number(inp.value) || 0;
   if (amount <= 0) { preview.textContent = ''; return; }
-  const cur = _currentPaymentsItem.currency || 'ARS';
-  const rate = Number(state.exchangeRate) || 1200;
+  const cur = S._currentPaymentsItem.currency || 'ARS';
+  const rate = Number(S.state.exchangeRate) || 1200;
   if (cur === 'USD') {
     const ars = amount * rate;
     preview.innerHTML = `≈ $${ars.toLocaleString('es-AR', {maximumFractionDigits: 0})} ARS <span class="text-gray-400 font-normal">(al cambio actual $${rate.toLocaleString('es-AR')})</span>`;
@@ -3177,19 +3191,19 @@ function updatePaymentConversionPreview() {
 
 function submitPayment(e) {
   e.preventDefault();
-  if (!_currentPaymentsItem) return;
+  if (!S._currentPaymentsItem) return;
   const data = Object.fromEntries(new FormData(e.target).entries());
   const amount = Number(data.amount);
   if (!amount || isNaN(amount)) return alert('Monto inválido');
-  addPaymentToItem(_currentPaymentsItem, amount, data.date, data.note);
+  addPaymentToItem(S._currentPaymentsItem, amount, data.date, data.note);
   // Refrescamos el item con el nuevo state
-  if (_currentPaymentsItem.auto && _currentPaymentsItem.sourceExpenseId) {
+  if (S._currentPaymentsItem.auto && S._currentPaymentsItem.sourceExpenseId) {
     // Recompute auto-expense
-    const fresh = getAutoExpenses(_currentPaymentsItem.month).find(x => x.sourceExpenseId === _currentPaymentsItem.sourceExpenseId);
-    if (fresh) _currentPaymentsItem = { ...fresh, _kind: 'expense' };
-  } else if (_currentPaymentsItem.auto) {
-    const fresh = getAutoIncomes(_currentPaymentsItem.month).find(x => x.projectId === _currentPaymentsItem.projectId);
-    if (fresh) _currentPaymentsItem = { ...fresh, _kind: 'income' };
+    const fresh = getAutoExpenses(S._currentPaymentsItem.month).find(x => x.sourceExpenseId === S._currentPaymentsItem.sourceExpenseId);
+    if (fresh) S._currentPaymentsItem = { ...fresh, _kind: 'expense' };
+  } else if (S._currentPaymentsItem.auto) {
+    const fresh = getAutoIncomes(S._currentPaymentsItem.month).find(x => x.projectId === S._currentPaymentsItem.projectId);
+    if (fresh) S._currentPaymentsItem = { ...fresh, _kind: 'income' };
   }
   renderPaymentsModal();
   // re-render main view in background
@@ -3200,7 +3214,7 @@ function submitPayment(e) {
 // CLIENTES — datos fiscales, fuente única para facturación
 // ============================================================
 function renderClients() {
-  const clients = state.clients || [];
+  const clients = S.state.clients || [];
   return `
     ${viewHeader('Clientes', `${clients.length} cliente${clients.length!==1?'s':''}`,
       `<button class="btn-primary" onclick="openClientModal()">+ Cliente</button>`)}
@@ -3213,7 +3227,7 @@ function renderClients() {
             Creá uno con sus datos fiscales para vincularlo a un proyecto y facturar más rápido.
           </div>
         ` : clients.map(c => {
-          const linked = state.projects.filter(p => p.clientId === c.id).length;
+          const linked = S.state.projects.filter(p => p.clientId === c.id).length;
           const dtLabel = DOC_TYPE_LABELS[c.docType] || 'Consumidor Final';
           return `
             <div class="p-4 flex items-center gap-3 hover:bg-gray-50 flex-wrap">
@@ -3289,11 +3303,11 @@ function saveClient(e) {
   e.preventDefault();
   const data = Object.fromEntries(new FormData(e.target).entries());
   if (data.docNumber) data.docNumber = String(data.docNumber).replace(/[^\d]/g, '');
-  state.clients = state.clients || [];
+  S.state.clients = S.state.clients || [];
   if (data.id) {
     Object.assign(getClient(data.id), data);
   } else {
-    state.clients.push({ ...data, id: uid() });
+    S.state.clients.push({ ...data, id: uid() });
   }
   save(); closeModal(); render();
 }
@@ -3301,11 +3315,11 @@ function saveClient(e) {
 function deleteClient(id) {
   const c = getClient(id);
   if (!c) return;
-  const linked = state.projects.filter(p => p.clientId === id);
+  const linked = S.state.projects.filter(p => p.clientId === id);
   let warning = `¿Eliminar al cliente ${c.name}?`;
   if (linked.length > 0) warning += `\n\n${linked.length} proyecto${linked.length>1?'s':''} quedará${linked.length>1?'n':''} sin cliente asignado.`;
   if (!confirm(warning)) return;
-  state.clients = (state.clients || []).filter(x => x.id !== id);
+  S.state.clients = (S.state.clients || []).filter(x => x.id !== id);
   linked.forEach(p => { p.clientId = ''; });
   save(); closeModal(); render();
 }
@@ -3330,7 +3344,7 @@ function getCollectedInARS(item) {
   return s.payments.reduce((sum, p) => {
     const amt = p.amount != null ? Number(p.amount) : s.expected;
     const cur = p.currency || item.currency || 'ARS';
-    const rate = Number(p.exchangeRate) || Number(state.exchangeRate) || 1200;
+    const rate = Number(p.exchangeRate) || Number(S.state.exchangeRate) || 1200;
     return sum + (cur === 'USD' ? amt * rate : amt);
   }, 0);
 }
@@ -3338,7 +3352,7 @@ function getCollectedInARS(item) {
 function getAllInvoicesFor(item) {
   const incomeId = _incomeIdFor(item);
   if (!incomeId) return [];
-  return (state.invoices || []).filter(inv => inv.incomeId === incomeId && !inv.voided);
+  return (S.state.invoices || []).filter(inv => inv.incomeId === incomeId && !inv.voided);
 }
 
 function getInvoicedInARS(item) {
@@ -3370,8 +3384,8 @@ function canEmitInvoice(item) {
 }
 
 async function getAuthToken() {
-  if (!sb) throw new Error('Supabase no disponible');
-  const { data: { session } } = await sb.auth.getSession();
+  if (!S.sb) throw new Error('Supabase no disponible');
+  const { data: { session } } = await S.sb.auth.getSession();
   if (!session?.access_token) throw new Error('Sesión expirada — re-loguéate');
   return session.access_token;
 }
@@ -3392,10 +3406,9 @@ async function callApi(path, opts = {}) {
   return json;
 }
 
-let _currentInvoiceItem = null;
 
 function openInvoiceModal(item) {
-  _currentInvoiceItem = item;
+  S._currentInvoiceItem = item;
   const s = getPaymentSummary(item);
   const p = item.projectId ? getProject(item.projectId) : null;
   const cur = item.currency || 'ARS';
@@ -3424,7 +3437,7 @@ function openInvoiceModal(item) {
   // Fallback: si no hay pagos aún (no debería pasar porque el botón no aparece)
   if (defaultAmount <= 0) {
     defaultAmount = cur === 'USD'
-      ? Math.round(s.expected * (Number(state.exchangeRate) || 1200))
+      ? Math.round(s.expected * (Number(S.state.exchangeRate) || 1200))
       : s.expected;
   }
   const prevInvoices = getAllInvoicesFor(item);
@@ -3515,7 +3528,7 @@ function openInvoiceModal(item) {
             ${remainingARS > 0 && remainingARS !== collectedARS ? `<button type="button" onclick="document.querySelector('[name=amount]').value='${remainingARS.toFixed(2)}'" class="chip bg-green-100 text-green-800 hover:bg-green-200 cursor-pointer text-[10px]">Saldo pendiente · ${fmtARS(remainingARS)}</button>` : ''}
             ${collectedARS > 0 ? `<button type="button" onclick="document.querySelector('[name=amount]').value='${collectedARS.toFixed(2)}'" class="chip bg-gray-100 text-gray-700 hover:bg-gray-200 cursor-pointer text-[10px]">Total cobrado · ${fmtARS(collectedARS)}</button>` : ''}
           </div>
-          ${cur === 'USD' ? `<p class="text-[11px] text-gray-500 mt-1">Original ingreso: US$${s.expected.toLocaleString('es-AR')} · cambio actual $${(Number(state.exchangeRate)||1200).toLocaleString('es-AR')}</p>` : ''}
+          ${cur === 'USD' ? `<p class="text-[11px] text-gray-500 mt-1">Original ingreso: US$${s.expected.toLocaleString('es-AR')} · cambio actual $${(Number(S.state.exchangeRate)||1200).toLocaleString('es-AR')}</p>` : ''}
         </div>
 
         <div id="invoiceErrorBox" class="hidden bg-red-50 border border-red-200 text-red-800 text-xs rounded-lg p-3"></div>
@@ -3530,11 +3543,10 @@ function openInvoiceModal(item) {
 }
 
 // Saves form data so user can come back from preview without losing values
-let _currentInvoiceForm = null;
 
 function previewInvoice(e) {
   e.preventDefault();
-  if (!_currentInvoiceItem) return;
+  if (!S._currentInvoiceItem) return;
   const data = Object.fromEntries(new FormData(e.target).entries());
   const errBox = document.getElementById('invoiceErrorBox');
   if (errBox) errBox.classList.add('hidden');
@@ -3549,13 +3561,13 @@ function previewInvoice(e) {
     return;
   }
 
-  _currentInvoiceForm = data;
+  S._currentInvoiceForm = data;
   renderInvoicePreview();
 }
 
 function renderInvoicePreview() {
-  const item = _currentInvoiceItem;
-  const data = _currentInvoiceForm;
+  const item = S._currentInvoiceItem;
+  const data = S._currentInvoiceForm;
   if (!item || !data) return;
 
   const p = item.projectId ? getProject(item.projectId) : null;
@@ -3696,8 +3708,8 @@ function renderInvoicePreview() {
 
 function backToEditInvoice() {
   // Re-render the form, then restore values from _currentInvoiceForm
-  const item = _currentInvoiceItem;
-  const saved = _currentInvoiceForm;
+  const item = S._currentInvoiceItem;
+  const saved = S._currentInvoiceForm;
   if (!item) return;
   openInvoiceModal(item);
   if (saved) {
@@ -3744,9 +3756,9 @@ function renderInvoiceLoading(currentStep) {
 }
 
 async function confirmEmitInvoice() {
-  if (!_currentInvoiceItem || !_currentInvoiceForm) return;
-  const item = _currentInvoiceItem;
-  const data = _currentInvoiceForm;
+  if (!S._currentInvoiceItem || !S._currentInvoiceForm) return;
+  const item = S._currentInvoiceItem;
+  const data = S._currentInvoiceForm;
 
   // Reemplazá el modal entero con la pantalla de loading
   const modalContent = document.getElementById('modalContent');
@@ -3802,8 +3814,8 @@ async function confirmEmitInvoice() {
       _dueDate: data.dueDate,
       _concept: payload.concept,
     };
-    state.invoices = state.invoices || [];
-    state.invoices.push(invoice);
+    S.state.invoices = S.state.invoices || [];
+    S.state.invoices.push(invoice);
     save();
 
     showToast(`Factura C ${invoice.code} emitida · CAE ${invoice.cae}`, 'success');
@@ -3824,8 +3836,8 @@ async function confirmEmitInvoice() {
 }
 
 function renderInvoiceSuccess(invoice) {
-  _currentInvoiceForm = null;
-  _currentInvoiceItem = null;
+  S._currentInvoiceForm = null;
+  S._currentInvoiceItem = null;
   const fmtMoney = (n) => `$${Number(n).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
   const fmtDateAfip = (s) => s && s.length === 8 ? `${s.slice(6,8)}/${s.slice(4,6)}/${s.slice(0,4)}` : (s || '—');
 
@@ -3896,7 +3908,7 @@ function openInvoicePdf(invoice) {
   // Fallback: si la factura es vieja y no tiene snapshots, reconstruir desde el income
   if (!invoice._itemConcept || !invoice._projectName) {
     const inc = invoice.incomeId && !invoice.incomeId.startsWith('auto:')
-      ? state.incomes.find(i => i.id === invoice.incomeId)
+      ? S.state.incomes.find(i => i.id === invoice.incomeId)
       : null;
     if (inc) {
       invoice._itemConcept = invoice._itemConcept || inc.concept;
@@ -4123,7 +4135,7 @@ async function checkAfipStatus() {
 }
 
 function reactivateRecurringExpense(expenseId) {
-  const e = state.expenses.find(x => x.id === expenseId);
+  const e = S.state.expenses.find(x => x.id === expenseId);
   if (!e) return;
   e.recurringEndDate = null;
   save(); render();
@@ -4132,15 +4144,15 @@ function reactivateRecurringExpense(expenseId) {
 
 // Borrado total: elimina el gasto + todo el historial de pagos recurrentes
 function deleteRecurringExpenseFull(expenseId) {
-  const e = state.expenses.find(x => x.id === expenseId);
+  const e = S.state.expenses.find(x => x.id === expenseId);
   if (!e) return;
-  const paymentsCount = (state.recurringExpensePayments || []).filter(r => r.expenseId === expenseId).length;
+  const paymentsCount = (S.state.recurringExpensePayments || []).filter(r => r.expenseId === expenseId).length;
   const detail = paymentsCount > 0
     ? `\n\nSe va a borrar el gasto original y los ${paymentsCount} pago${paymentsCount>1?'s':''} registrado${paymentsCount>1?'s':''}.`
     : '';
   if (!confirm(`¿Eliminar completamente "${e.concept}"?${detail}\n\nEsto NO se puede deshacer.`)) return;
-  state.expenses = state.expenses.filter(x => x.id !== expenseId);
-  state.recurringExpensePayments = (state.recurringExpensePayments || []).filter(r => r.expenseId !== expenseId);
+  S.state.expenses = S.state.expenses.filter(x => x.id !== expenseId);
+  S.state.recurringExpensePayments = (S.state.recurringExpensePayments || []).filter(r => r.expenseId !== expenseId);
   save(); render();
   showToast('Gasto eliminado completamente', 'success');
 }
@@ -4150,16 +4162,16 @@ function inRange(date, from, to) {
 }
 
 function fmtAmount(n, currency) {
-  const c = currency || state.defaultCurrency || 'ARS';
+  const c = currency || S.state.defaultCurrency || 'ARS';
   const symbol = c === 'USD' ? 'US$' : '$';
   return symbol + (Number(n)||0).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
 
 function toBaseCurrency(amount, fromCurrency, toCurrency) {
   const from = fromCurrency || 'ARS';
-  const to = toCurrency || state.defaultCurrency || 'ARS';
+  const to = toCurrency || S.state.defaultCurrency || 'ARS';
   if (from === to) return Number(amount);
-  const rate = Number(state.exchangeRate) || 1200;
+  const rate = Number(S.state.exchangeRate) || 1200;
   if (from === 'USD' && to === 'ARS') return Number(amount) * rate;
   if (from === 'ARS' && to === 'USD') return Number(amount) / rate;
   return Number(amount);
@@ -4167,7 +4179,7 @@ function toBaseCurrency(amount, fromCurrency, toCurrency) {
 
 function convertAt(amount, fromCurrency, toCurrency, rate) {
   const from = fromCurrency || 'ARS';
-  const to = toCurrency || state.defaultCurrency || 'ARS';
+  const to = toCurrency || S.state.defaultCurrency || 'ARS';
   if (from === to) return Number(amount);
   const r = Number(rate) || 1200;
   if (from === 'USD' && to === 'ARS') return Number(amount) * r;
@@ -4190,7 +4202,7 @@ function getEffectiveRate(item) {
   } else if (item.exchangeRateAtTime) {
     return Number(item.exchangeRateAtTime);
   }
-  return Number(state.exchangeRate) || 1200;
+  return Number(S.state.exchangeRate) || 1200;
 }
 
 function toBaseCurrencyForItem(item, toCurrency) {
@@ -4201,13 +4213,13 @@ function toBaseCurrencyForItem(item, toCurrency) {
 // DOLAR_SOURCES, fetchBluelyticsBlue, autoFetchBlueIfStale, fetchDollarRate (importados arriba).
 
 function openExchangeRateModal() {
-  const updatedLabel = state.exchangeRateUpdatedAt
-    ? new Date(state.exchangeRateUpdatedAt).toLocaleString('es-AR', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })
+  const updatedLabel = S.state.exchangeRateUpdatedAt
+    ? new Date(S.state.exchangeRateUpdatedAt).toLocaleString('es-AR', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })
     : 'nunca';
   let srcLabel = 'Manual';
-  if (state.exchangeRateSource === 'bluelytics') srcLabel = 'Blue (Bluelytics)';
-  else if (state.exchangeRateSource && state.exchangeRateSource !== 'manual') {
-    srcLabel = DOLAR_SOURCES.find(s => s.key === state.exchangeRateSource)?.label || state.exchangeRateSource;
+  if (S.state.exchangeRateSource === 'bluelytics') srcLabel = 'Blue (Bluelytics)';
+  else if (S.state.exchangeRateSource && S.state.exchangeRateSource !== 'manual') {
+    srcLabel = DOLAR_SOURCES.find(s => s.key === S.state.exchangeRateSource)?.label || S.state.exchangeRateSource;
   }
 
   openModal(`
@@ -4232,7 +4244,7 @@ function openExchangeRateModal() {
         <div>
           <label class="text-xs text-gray-500">Valor manual (ARS por USD)</label>
           <div class="flex gap-2">
-            <input type="number" step="1" name="rate" class="input flex-1 text-lg font-semibold" value="${state.exchangeRate || 1200}" autofocus />
+            <input type="number" step="1" name="rate" class="input flex-1 text-lg font-semibold" value="${S.state.exchangeRate || 1200}" autofocus />
             <button type="submit" class="btn-primary">Guardar</button>
           </div>
         </div>
@@ -4258,9 +4270,9 @@ function saveManualRate(e) {
   const data = Object.fromEntries(new FormData(e.target).entries());
   const rate = Number(data.rate);
   if (!rate || isNaN(rate)) return alert('Valor inválido');
-  state.exchangeRate = rate;
-  state.exchangeRateSource = 'manual';
-  state.exchangeRateUpdatedAt = new Date().toISOString();
+  S.state.exchangeRate = rate;
+  S.state.exchangeRateSource = 'manual';
+  S.state.exchangeRateUpdatedAt = new Date().toISOString();
   save();
   closeModal();
   showToast('Cotización actualizada', 'success');
@@ -4279,30 +4291,30 @@ const PAYMENT_VARS = [
     } },
   // {amount} → SIEMPRE convertido a moneda base (ARS por defecto) al cambio actual
   { key: 'amount', label: 'Monto (moneda base)', resolve: (p, i) => {
-      const base = state.defaultCurrency || 'ARS';
-      const rate = Number(state.exchangeRate) || 1200;
+      const base = S.state.defaultCurrency || 'ARS';
+      const rate = Number(S.state.exchangeRate) || 1200;
       const converted = convertAt(i.amount, i.currency, base, rate);
       return fmtAmount(converted, base);
     } },
   { key: 'amountOriginal', label: 'Monto original', resolve: (p, i) => fmtAmount(i.amount, i.currency) },
   { key: 'amountARS',  label: 'Monto en ARS hoy', resolve: (p, i) => {
       if (i.currency === 'ARS') return fmtAmount(i.amount, 'ARS');
-      const rate = Number(state.exchangeRate) || 1200;
+      const rate = Number(S.state.exchangeRate) || 1200;
       return fmtAmount(Number(i.amount) * rate, 'ARS');
     } },
   { key: 'amountUSD',  label: 'Monto en USD hoy', resolve: (p, i) => {
       if (i.currency === 'USD') return fmtAmount(i.amount, 'USD');
-      const rate = Number(state.exchangeRate) || 1200;
+      const rate = Number(S.state.exchangeRate) || 1200;
       return fmtAmount(Number(i.amount) / rate, 'USD');
     } },
-  { key: 'rate',    label: 'Cotización USD',  resolve: () => '$' + (Number(state.exchangeRate)||1200).toLocaleString('es-AR') },
+  { key: 'rate',    label: 'Cotización USD',  resolve: () => '$' + (Number(S.state.exchangeRate)||1200).toLocaleString('es-AR') },
   { key: 'date',    label: 'Fecha hoy',       resolve: () => new Date().toLocaleDateString('es-AR', { day:'2-digit', month:'long', year:'numeric' }) },
 ];
 
 function buildPaymentMessage(income) {
   const p = getProject(income.projectId);
   if (!p) return '';
-  let msg = state.paymentMessageTemplate || '';
+  let msg = S.state.paymentMessageTemplate || '';
   PAYMENT_VARS.forEach(v => {
     // Función como reemplazo: evita interpretar $ como backreference
     msg = msg.replace(new RegExp(`\\{${v.key}\\}`, 'g'), () => String(v.resolve(p, income) ?? ''));
@@ -4320,16 +4332,15 @@ function sendPaymentReminder(income) {
   openPaymentMessageModal(income);
 }
 
-let _currentPaymentIncome = null;
 
 function openPaymentMessageModal(income) {
-  _currentPaymentIncome = income;
+  S._currentPaymentIncome = income;
   const p = getProject(income.projectId);
   const phone = (p.contactPhone || '').replace(/[^\d]/g, '');
   const msg = buildPaymentMessage(income);
   const itemCurrency = income.currency || 'ARS';
-  const base = state.defaultCurrency || 'ARS';
-  const rate = Number(state.exchangeRate) || 1200;
+  const base = S.state.defaultCurrency || 'ARS';
+  const rate = Number(S.state.exchangeRate) || 1200;
   const showCurrencyWarning = itemCurrency === 'ARS' && Number(income.amount) > 0 && Number(income.amount) <= 200;
 
   openModal(`
@@ -4386,8 +4397,8 @@ function openPaymentMessageModal(income) {
 }
 
 function resetPaymentMsg() {
-  if (!_currentPaymentIncome) return;
-  const msg = buildPaymentMessage(_currentPaymentIncome);
+  if (!S._currentPaymentIncome) return;
+  const msg = buildPaymentMessage(S._currentPaymentIncome);
   document.getElementById('paymentMsgText').value = msg;
   showToast('Mensaje restaurado', 'info', 1500);
 }
@@ -4406,17 +4417,17 @@ function sendPaymentNow(phone) {
 }
 
 function monthBalance(month) {
-  const m = month || financeMonth;
-  const inc = state.incomes.filter(i => i.date && i.date.startsWith(m)).reduce((a,b) => a + Number(b.amount||0), 0);
+  const m = month || S.financeMonth;
+  const inc = S.state.incomes.filter(i => i.date && i.date.startsWith(m)).reduce((a,b) => a + Number(b.amount||0), 0);
   const autoInc = getAutoIncomes(m).reduce((a,b) => a + Number(b.amount||0), 0);
-  const exp = state.expenses.filter(e => e.date && e.date.startsWith(m)).reduce((a,b) => a + Number(b.amount||0), 0);
+  const exp = S.state.expenses.filter(e => e.date && e.date.startsWith(m)).reduce((a,b) => a + Number(b.amount||0), 0);
   return inc + autoInc - exp;
 }
 
-function setFinanceMode(m) { financeMode = m; render(); }
+function setFinanceMode(m) { S.financeMode = m; render(); }
 
 function setBaseCurrency(cur) {
-  state.defaultCurrency = (cur === 'ARS' ? 'ARS' : 'USD');
+  S.state.defaultCurrency = (cur === 'ARS' ? 'ARS' : 'USD');
   save();
   render();
 }
@@ -4430,7 +4441,7 @@ function openFinanceBreakdown(kind) {
   const baseCur = audit.baseCur;
   const title = kind === 'income' ? 'Detalle de Cobrado' : 'Detalle de Pagado';
   const color = kind === 'income' ? 'text-green-700' : 'text-red-600';
-  const rateNow = Number(state.exchangeRate) || 1200;
+  const rateNow = Number(S.state.exchangeRate) || 1200;
 
   // Ordenamos por mes y monto descendente
   const sorted = [...rows].sort((a,b) => a.monthKey.localeCompare(b.monthKey) || b.arsAmt - a.arsAmt);
@@ -4498,63 +4509,63 @@ function openFinanceBreakdown(kind) {
 }
 
 function getDisplayYear() {
-  if (financeMode === 'year') return Number(financeYear);
-  if (financeMode === 'range') return Number((financeFrom || todayISO()).slice(0,4));
-  return Number((financeMonth || todayISO()).slice(0,4));
+  if (S.financeMode === 'year') return Number(S.financeYear);
+  if (S.financeMode === 'range') return Number((S.financeFrom || todayISO()).slice(0,4));
+  return Number((S.financeMonth || todayISO()).slice(0,4));
 }
 
 function navYear(delta) {
   const y = getDisplayYear() + delta;
-  if (financeMode === 'year') {
-    financeYear = String(y);
-  } else if (financeMode === 'month') {
-    const mm = financeMonth.slice(5, 7);
-    financeMonth = `${y}-${mm}`;
-  } else if (financeMode === 'range') {
+  if (S.financeMode === 'year') {
+    S.financeYear = String(y);
+  } else if (S.financeMode === 'month') {
+    const mm = S.financeMonth.slice(5, 7);
+    S.financeMonth = `${y}-${mm}`;
+  } else if (S.financeMode === 'range') {
     // Shift range by 1 year
     const shiftDate = (d) => {
       const [yy, mm, dd] = d.split('-');
       return `${Number(yy)+delta}-${mm}-${dd}`;
     };
-    if (financeFrom) financeFrom = shiftDate(financeFrom);
-    if (financeTo)   financeTo   = shiftDate(financeTo);
-    financeYear = String(y);
+    if (S.financeFrom) S.financeFrom = shiftDate(S.financeFrom);
+    if (S.financeTo)   S.financeTo   = shiftDate(S.financeTo);
+    S.financeYear = String(y);
   }
   render();
 }
 
 function selectFinanceMonth(monthKey) {
-  financeMode = 'month';
-  financeMonth = monthKey;
+  S.financeMode = 'month';
+  S.financeMonth = monthKey;
   render();
 }
 
 function openRangePickerInline() {
-  if (financeMode === 'range') {
+  if (S.financeMode === 'range') {
     // Si ya estaba activo, vuelvo al mes actual
-    financeMode = 'month';
+    S.financeMode = 'month';
   } else {
-    financeMode = 'range';
+    S.financeMode = 'range';
     // Inicializar rango si no estaba
-    if (!financeFrom) financeFrom = new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0,10);
-    if (!financeTo) financeTo = todayISO();
+    if (!S.financeFrom) S.financeFrom = new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0,10);
+    if (!S.financeTo) S.financeTo = todayISO();
   }
   render();
 }
 
 function renderFinance() {
   const { from, to, label } = getFinanceRange();
-  const baseCur = state.defaultCurrency || 'ARS';
+  const baseCur = S.state.defaultCurrency || 'ARS';
 
-  const realInc = state.incomes.filter(i => i.date && inRange(i.date, from, to))
+  const realInc = S.state.incomes.filter(i => i.date && inRange(i.date, from, to))
     .map(i => ({ ...i, status: i.status || 'CONFIRMED' }));
   const autoInc = getAutoIncomesInRange(from, to);
-  const realExp = state.expenses.filter(e => e.date && inRange(e.date, from, to))
+  const realExp = S.state.expenses.filter(e => e.date && inRange(e.date, from, to))
     .map(e => ({ ...e, status: e.status || 'PAID' }));
   const autoExp = getAutoExpensesInRange(from, to);
 
   // Arrastres sólo en vista de Mes individual
-  const carryOvers = financeMode === 'month' ? getCarryOversForMonth(financeMonth) : { incomes: [], expenses: [] };
+  const carryOvers = S.financeMode === 'month' ? getCarryOversForMonth(S.financeMonth) : { incomes: [], expenses: [] };
   const inc = [...autoInc, ...realInc, ...carryOvers.incomes];
   const exp = [...autoExp, ...realExp, ...carryOvers.expenses];
 
@@ -4597,7 +4608,7 @@ function renderFinance() {
       .reduce((sum, p) => {
         const amt = p.amount != null ? Number(p.amount) : s.expected;
         const cur = p.currency || item.currency || 'ARS';
-        const rate = Number(p.exchangeRate) || Number(state.exchangeRate) || 1200;
+        const rate = Number(p.exchangeRate) || Number(S.state.exchangeRate) || 1200;
         return sum + convertAt(amt, cur, targetCur, rate);
       }, 0);
   }
@@ -4659,18 +4670,18 @@ function renderFinance() {
 
   // (A) Items en su PERÍODO ORIGINAL dentro del rango (incluye carry-overs en vista mes)
   inc.forEach(i => {
-    const m = i._carryOver ? financeMonth : (i.month || i.date || '').slice(0,7);
+    const m = i._carryOver ? S.financeMonth : (i.month || i.date || '').slice(0,7);
     addRow(m, { ...i, _kind: 'income' });
   });
   exp.forEach(e => {
-    const m = e._carryOver ? financeMonth : (e.date || '').slice(0,7);
+    const m = e._carryOver ? S.financeMonth : (e.date || '').slice(0,7);
     addRow(m, { ...e, _kind: 'expense' });
   });
 
   // (B) Items con PAGOS dentro del rango pero período en OTRO mes → aparecen también en el mes del pago
   function addForeignPaymentRows() {
-    (state.incomePayments || []).forEach(p => {
-      const inc = state.incomes.find(x => x.id === p.incomeId);
+    (S.state.incomePayments || []).forEach(p => {
+      const inc = S.state.incomes.find(x => x.id === p.incomeId);
       if (!inc) return;
       const d = (p.date || p.paidAt || '').slice(0,10);
       if (!d || !inRange(d, from, to)) return;
@@ -4679,8 +4690,8 @@ function renderFinance() {
       if (payM === itemM) return; // ya está en (A)
       addRow(payM, { ...inc, _kind: 'income', _foreignPayment: true, _originalPeriod: itemM });
     });
-    (state.expensePayments || []).forEach(p => {
-      const exp = state.expenses.find(x => x.id === p.expenseId);
+    (S.state.expensePayments || []).forEach(p => {
+      const exp = S.state.expenses.find(x => x.id === p.expenseId);
       if (!exp) return;
       const d = (p.date || p.paidAt || '').slice(0,10);
       if (!d || !inRange(d, from, to)) return;
@@ -4689,7 +4700,7 @@ function renderFinance() {
       if (payM === itemM) return;
       addRow(payM, { ...exp, _kind: 'expense', _foreignPayment: true, _originalPeriod: itemM });
     });
-    (state.recurringChargeLog || []).forEach(r => {
+    (S.state.recurringChargeLog || []).forEach(r => {
       const d = (r.date || r.chargedAt || '').slice(0,10);
       if (!d || !inRange(d, from, to)) return;
       const payM = d.slice(0,7);
@@ -4699,7 +4710,7 @@ function renderFinance() {
       const match = autos.find(a => a.projectId === r.projectId && a.month === r.month);
       if (match) addRow(payM, { ...match, _kind: 'income', _foreignPayment: true, _originalPeriod: r.month });
     });
-    (state.recurringExpensePayments || []).forEach(r => {
+    (S.state.recurringExpensePayments || []).forEach(r => {
       const d = (r.date || r.paidAt || '').slice(0,10);
       if (!d || !inRange(d, from, to)) return;
       const payM = d.slice(0,7);
@@ -4744,7 +4755,7 @@ function renderFinance() {
 
   // Pendiente: items del período con saldo sin pagar (SOLO en vista mes)
   // Sumado en baseCur al tipo de cambio ACTUAL (porque aún no se cobró)
-  const _rateNow = Number(state.exchangeRate) || 1200;
+  const _rateNow = Number(S.state.exchangeRate) || 1200;
   const _pendingInBase = (item) => {
     const s = getPaymentSummary(item);
     if (item._carryOver) {
@@ -4776,14 +4787,14 @@ function renderFinance() {
   // Year selector options
   const allYears = (() => {
     const yrs = new Set([new Date().getFullYear()]);
-    state.incomes.forEach(i => i.date && yrs.add(Number(i.date.slice(0,4))));
-    state.expenses.forEach(e => e.date && yrs.add(Number(e.date.slice(0,4))));
-    state.projects.forEach(p => p.startDate && yrs.add(Number(p.startDate.slice(0,4))));
+    S.state.incomes.forEach(i => i.date && yrs.add(Number(i.date.slice(0,4))));
+    S.state.expenses.forEach(e => e.date && yrs.add(Number(e.date.slice(0,4))));
+    S.state.projects.forEach(p => p.startDate && yrs.add(Number(p.startDate.slice(0,4))));
     return [...yrs].sort((a,b) => b-a);
   })();
 
   const displayYear = getDisplayYear();
-  const showPending = financeMode === 'month';  // pending solo en vista mes
+  const showPending = S.financeMode === 'month';  // pending solo en vista mes
 
   return `
     <div class="px-4 md:px-10 pt-8 md:pt-10 pb-4">
@@ -4806,18 +4817,18 @@ function renderFinance() {
             <span class="px-2 text-sm font-semibold min-w-[50px] text-center">${displayYear}</span>
             <button onclick="navYear(1)" class="px-2 py-1 rounded-md hover:bg-white transition text-sm">›</button>
           </div>
-          <button onclick="setFinanceMode('year')" class="px-3 py-1.5 rounded-lg text-sm ${financeMode==='year'?'bg-black text-white':'bg-gray-100 text-gray-700 hover:bg-gray-200'} transition">Año completo</button>
-          <button onclick="openRangePickerInline()" class="px-3 py-1.5 rounded-lg text-sm ${financeMode==='range'?'bg-black text-white':'bg-gray-100 text-gray-700 hover:bg-gray-200'} transition">Rango custom</button>
+          <button onclick="setFinanceMode('year')" class="px-3 py-1.5 rounded-lg text-sm ${S.financeMode==='year'?'bg-black text-white':'bg-gray-100 text-gray-700 hover:bg-gray-200'} transition">Año completo</button>
+          <button onclick="openRangePickerInline()" class="px-3 py-1.5 rounded-lg text-sm ${S.financeMode==='range'?'bg-black text-white':'bg-gray-100 text-gray-700 hover:bg-gray-200'} transition">Rango custom</button>
 
           <span class="hidden sm:inline text-gray-300">·</span>
           <div class="flex items-center gap-0.5 bg-gray-100 rounded-lg p-1" title="Moneda principal de display">
             <button onclick="setBaseCurrency('USD')" class="px-2.5 py-1 rounded-md text-xs font-semibold transition ${baseCur==='USD'?'bg-white shadow-sm text-gray-900':'text-gray-500 hover:text-gray-700'}">USD</button>
             <button onclick="setBaseCurrency('ARS')" class="px-2.5 py-1 rounded-md text-xs font-semibold transition ${baseCur==='ARS'?'bg-white shadow-sm text-gray-900':'text-gray-500 hover:text-gray-700'}">ARS</button>
           </div>
-          <button onclick="openExchangeRateModal()" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 hover:border-black hover:bg-gray-50 transition text-sm" title="${state.exchangeRateSource === 'bluelytics' ? 'Dólar blue auto · Bluelytics' : 'Cotización del dólar'}">
-            ${state.exchangeRateSource === 'bluelytics' ? '<span class="w-2 h-2 rounded-full bg-green-500"></span>' : ''}
-            <span class="text-gray-500 text-xs">${state.exchangeRateSource === 'bluelytics' ? 'Blue' : 'TC'}</span>
-            <span class="font-semibold">$${(state.exchangeRate || 1200).toLocaleString('es-AR')}</span>
+          <button onclick="openExchangeRateModal()" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 hover:border-black hover:bg-gray-50 transition text-sm" title="${S.state.exchangeRateSource === 'bluelytics' ? 'Dólar blue auto · Bluelytics' : 'Cotización del dólar'}">
+            ${S.state.exchangeRateSource === 'bluelytics' ? '<span class="w-2 h-2 rounded-full bg-green-500"></span>' : ''}
+            <span class="text-gray-500 text-xs">${S.state.exchangeRateSource === 'bluelytics' ? 'Blue' : 'TC'}</span>
+            <span class="font-semibold">$${(S.state.exchangeRate || 1200).toLocaleString('es-AR')}</span>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-gray-400"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
           </button>
         </div>
@@ -4827,19 +4838,19 @@ function renderFinance() {
           ${MONTH_NAMES_SHORT.map((mName, idx) => {
             const mNum = String(idx+1).padStart(2,'0');
             const mKey = `${displayYear}-${mNum}`;
-            const active = financeMode === 'month' && financeMonth === mKey;
+            const active = S.financeMode === 'month' && S.financeMonth === mKey;
             const isCurrent = mKey === new Date().toISOString().slice(0,7);
             return `<button onclick="selectFinanceMonth('${mKey}')" class="px-3 py-1.5 rounded-md text-sm transition ${active?'bg-black text-white':isCurrent?'bg-blue-50 text-blue-700 hover:bg-blue-100':'bg-gray-100 text-gray-700 hover:bg-gray-200'}">${mName}</button>`;
           }).join('')}
         </div>
 
         <!-- Range picker inline (visible only in range mode) -->
-        ${financeMode === 'range' ? `
+        ${S.financeMode === 'range' ? `
           <div class="flex flex-wrap items-center gap-2 pt-1">
             <span class="text-xs text-gray-500 uppercase tracking-wider">Rango:</span>
-            <input type="date" class="input max-w-[150px]" value="${financeFrom}" onchange="financeFrom=this.value; render()" />
+            <input type="date" class="input max-w-[150px]" value="${S.financeFrom}" onchange="financeFrom=this.value; render()" />
             <span class="text-gray-400 text-sm">→</span>
-            <input type="date" class="input max-w-[150px]" value="${financeTo}" onchange="financeTo=this.value; render()" />
+            <input type="date" class="input max-w-[150px]" value="${S.financeTo}" onchange="financeTo=this.value; render()" />
           </div>
         ` : ''}
       </div>
@@ -5118,26 +5129,26 @@ function renderFinance() {
 
 function toggleItemStatus(kind, id) {
   if (kind === 'income') {
-    const i = state.incomes.find(x => x.id === id);
+    const i = S.state.incomes.find(x => x.id === id);
     if (!i) return;
     const goingToConfirmed = !(i.status === 'CONFIRMED' || !i.status);
     i.status = goingToConfirmed ? 'CONFIRMED' : 'PENDING';
     if (goingToConfirmed) {
-      i.exchangeRateAtTime = Number(state.exchangeRate) || 1200;
-      i.exchangeRateSource = state.exchangeRateSource || 'manual';
+      i.exchangeRateAtTime = Number(S.state.exchangeRate) || 1200;
+      i.exchangeRateSource = S.state.exchangeRateSource || 'manual';
       i.confirmedAt = new Date().toISOString();
     } else {
       i.exchangeRateAtTime = null;
       i.confirmedAt = null;
     }
   } else {
-    const e = state.expenses.find(x => x.id === id);
+    const e = S.state.expenses.find(x => x.id === id);
     if (!e) return;
     const goingToPaid = !(e.status === 'PAID' || !e.status);
     e.status = goingToPaid ? 'PAID' : 'PENDING';
     if (goingToPaid) {
-      e.exchangeRateAtTime = Number(state.exchangeRate) || 1200;
-      e.exchangeRateSource = state.exchangeRateSource || 'manual';
+      e.exchangeRateAtTime = Number(S.state.exchangeRate) || 1200;
+      e.exchangeRateSource = S.state.exchangeRateSource || 'manual';
       e.paidAt = new Date().toISOString();
     } else {
       e.exchangeRateAtTime = null;
@@ -5149,24 +5160,24 @@ function toggleItemStatus(kind, id) {
 
 // ============ REPORTS ============
 function renderReports() {
-  const total = state.tasks.length;
-  const completed = state.tasks.filter(t => t.status === 'COMPLETED').length;
-  const blocked = state.tasks.filter(t => t.status === 'BLOCKED').length;
-  const inProgress = state.tasks.filter(t => t.status === 'IN_PROGRESS').length;
+  const total = S.state.tasks.length;
+  const completed = S.state.tasks.filter(t => t.status === 'COMPLETED').length;
+  const blocked = S.state.tasks.filter(t => t.status === 'BLOCKED').length;
+  const inProgress = S.state.tasks.filter(t => t.status === 'IN_PROGRESS').length;
 
   // Estimation accuracy
-  const estimated = state.tasks.filter(t => t.estimatedHrs && t.actualHrs);
+  const estimated = S.state.tasks.filter(t => t.estimatedHrs && t.actualHrs);
   const avgDeviation = estimated.length > 0
     ? Math.round(estimated.reduce((a,t) => a + (t.actualHrs - t.estimatedHrs) / t.estimatedHrs * 100, 0) / estimated.length)
     : null;
 
   // Completed last 30 days
   const since = new Date(); since.setDate(since.getDate() - 30);
-  const recentlyDone = state.tasks.filter(t => t.completedAt && new Date(t.completedAt) >= since).length;
+  const recentlyDone = S.state.tasks.filter(t => t.completedAt && new Date(t.completedAt) >= since).length;
 
   // Workload per member: horas estimadas pendientes vs capacidad semanal
-  const workload = state.members.map(m => {
-    const activeTasks = state.tasks.filter(t => t.assigneeId === m.id && t.status !== 'COMPLETED');
+  const workload = S.state.members.map(m => {
+    const activeTasks = S.state.tasks.filter(t => t.assigneeId === m.id && t.status !== 'COMPLETED');
     const blockedTasks = activeTasks.filter(t => t.status === 'BLOCKED');
     const estimatedHrsPending = activeTasks.reduce((sum, t) => sum + (Number(t.estimatedHrs) || 0), 0);
     const capacity = Number(m.weeklyCapacityHrs) || 30;
@@ -5180,7 +5191,7 @@ function renderReports() {
       role: MEMBER_ROLES.find(r => r.key === m.role),
       active: activeTasks.length,
       blocked: blockedTasks.length,
-      done30d: state.tasks.filter(t => t.assigneeId === m.id && t.completedAt && new Date(t.completedAt) >= since).length,
+      done30d: S.state.tasks.filter(t => t.assigneeId === m.id && t.completedAt && new Date(t.completedAt) >= since).length,
       estimatedHrsPending,
       capacity,
       weeksOfLoad,
@@ -5367,7 +5378,7 @@ document.getElementById('modal').addEventListener('click', (e) => {
 
 // ---- Task modal ----
 function openTaskModal(id) {
-  const t = id ? getTask(id) : { id: null, title: '', description: '', status: 'PENDING', priority: 'MEDIUM', projectId: state.projects[0]?.id || '', assigneeId: currentMemberId, startDate: todayISO(), dueDate: '', estimatedHrs: '', actualHrs: '' };
+  const t = id ? getTask(id) : { id: null, title: '', description: '', status: 'PENDING', priority: 'MEDIUM', projectId: S.state.projects[0]?.id || '', assigneeId: S.currentMemberId, startDate: todayISO(), dueDate: '', estimatedHrs: '', actualHrs: '' };
   const isNew = !id;
   const isDone = t.status === 'COMPLETED';
   openModal(`
@@ -5387,8 +5398,8 @@ function openTaskModal(id) {
           <div>
             <label class="text-xs text-gray-500">Proyecto</label>
             <select name="projectId" required>
-              ${state.projects.length === 0 ? '<option value="">(Creá un proyecto primero)</option>' :
-                state.projects.map(p => `<option value="${p.id}" ${t.projectId===p.id?'selected':''}>${escapeHtml(p.name)}</option>`).join('')}
+              ${S.state.projects.length === 0 ? '<option value="">(Creá un proyecto primero)</option>' :
+                S.state.projects.map(p => `<option value="${p.id}" ${t.projectId===p.id?'selected':''}>${escapeHtml(p.name)}</option>`).join('')}
             </select>
           </div>
           <div>
@@ -5407,7 +5418,7 @@ function openTaskModal(id) {
             <label class="text-xs text-gray-500">Asignado a</label>
             <select name="assigneeId">
               <option value="">Sin asignar</option>
-              ${state.members.map(m => `<option value="${m.id}" ${t.assigneeId===m.id?'selected':''}>${escapeHtml(m.name)}</option>`).join('')}
+              ${S.state.members.map(m => `<option value="${m.id}" ${t.assigneeId===m.id?'selected':''}>${escapeHtml(m.name)}</option>`).join('')}
             </select>
           </div>
           <div>
@@ -5483,10 +5494,10 @@ function saveTask(e) {
       pushHistory(t.id, 'status', oldStatus, data.status);
       if (data.status === 'COMPLETED') t.completedAt = new Date().toISOString();
     }
-    if (data.assigneeId && data.assigneeId !== oldAssignee && data.assigneeId !== currentMemberId) {
+    if (data.assigneeId && data.assigneeId !== oldAssignee && data.assigneeId !== S.currentMemberId) {
       notify(data.assigneeId, t.id, `Te asignaron: ${t.title}`);
       const m = getMember(data.assigneeId);
-      showToast(`Asignada a ${m?.name || 'miembro'} · ${state.emailConfig?.enabled ? '✉ Email enviado' : ''}`, 'success');
+      showToast(`Asignada a ${m?.name || 'miembro'} · ${S.state.emailConfig?.enabled ? '✉ Email enviado' : ''}`, 'success');
     }
     t.updatedAt = new Date().toISOString();
   } else {
@@ -5497,12 +5508,12 @@ function saveTask(e) {
       updatedAt: new Date().toISOString(),
       completedAt: data.status === 'COMPLETED' ? new Date().toISOString() : null,
     };
-    state.tasks.push(t);
+    S.state.tasks.push(t);
     pushHistory(t.id, 'created', null, null);
-    if (data.assigneeId && data.assigneeId !== currentMemberId) {
+    if (data.assigneeId && data.assigneeId !== S.currentMemberId) {
       notify(data.assigneeId, t.id, `Te asignaron: ${t.title}`);
       const m = getMember(data.assigneeId);
-      showToast(`Asignada a ${m?.name || 'miembro'} · ${state.emailConfig?.enabled ? '✉ Email enviado' : ''}`, 'success');
+      showToast(`Asignada a ${m?.name || 'miembro'} · ${S.state.emailConfig?.enabled ? '✉ Email enviado' : ''}`, 'success');
     }
   }
   save();
@@ -5512,9 +5523,9 @@ function saveTask(e) {
 
 function deleteTask(id) {
   if (!confirm('¿Eliminar esta tarea?')) return;
-  state.tasks = state.tasks.filter(t => t.id !== id);
-  state.comments = state.comments.filter(c => c.taskId !== id);
-  state.history  = state.history.filter(h => h.taskId !== id);
+  S.state.tasks = S.state.tasks.filter(t => t.id !== id);
+  S.state.comments = S.state.comments.filter(c => c.taskId !== id);
+  S.state.history  = S.state.history.filter(h => h.taskId !== id);
   save(); closeModal(); render();
 }
 
@@ -5522,8 +5533,8 @@ function deleteTask(id) {
 function openTaskDetail(id) {
   const t = getTask(id);
   const p = getProject(t.projectId);
-  const comments = state.comments.filter(c => c.taskId === id).sort((a,b) => a.createdAt.localeCompare(b.createdAt));
-  const history  = state.history.filter(h => h.taskId === id).sort((a,b) => a.createdAt.localeCompare(b.createdAt));
+  const comments = S.state.comments.filter(c => c.taskId === id).sort((a,b) => a.createdAt.localeCompare(b.createdAt));
+  const history  = S.state.history.filter(h => h.taskId === id).sort((a,b) => a.createdAt.localeCompare(b.createdAt));
   const feed = [...comments.map(c => ({type:'comment', ...c})), ...history.map(h => ({type:'history', ...h}))].sort((a,b) => a.createdAt.localeCompare(b.createdAt));
 
   openModal(`
@@ -5584,7 +5595,7 @@ function openTaskDetail(id) {
         <input name="content" class="input" placeholder="Comentario... (@nombre para notificar)" required />
         <button class="btn-primary">Enviar</button>
       </form>
-      <p class="text-[11px] text-gray-400 mt-1">Miembros: ${state.members.map(m => '@' + m.name).join(', ')}</p>
+      <p class="text-[11px] text-gray-400 mt-1">Miembros: ${S.state.members.map(m => '@' + m.name).join(', ')}</p>
     </div>
   `);
 }
@@ -5616,10 +5627,10 @@ function addComment(e, taskId) {
   const fd = new FormData(e.target);
   const content = fd.get('content');
   const mentions = parseMentions(content);
-  state.comments.push({
+  S.state.comments.push({
     id: uid(),
     taskId,
-    authorId: currentMemberId,
+    authorId: S.currentMemberId,
     content,
     mentions,
     createdAt: new Date().toISOString(),
@@ -5632,7 +5643,7 @@ function addComment(e, taskId) {
 
 // ---- Project modal ----
 function openProjectModal(id) {
-  const p = id ? getProject(id) : { id: null, name: '', description: '', color: DEFAULT_PROJECT_COLOR, projectTypes: ['SYSTEM'], status: 'LEAD', startDate: todayISO(), endDate: '', budget: '', monthlyFee: '', monthlyFeeCurrency: state.defaultCurrency || 'ARS', clientId: '', contactName: '', contactEmail: '', contactPhone: '', systemUrl: '' };
+  const p = id ? getProject(id) : { id: null, name: '', description: '', color: DEFAULT_PROJECT_COLOR, projectTypes: ['SYSTEM'], status: 'LEAD', startDate: todayISO(), endDate: '', budget: '', monthlyFee: '', monthlyFeeCurrency: S.state.defaultCurrency || 'ARS', clientId: '', contactName: '', contactEmail: '', contactPhone: '', systemUrl: '' };
   const pColor = p.color || DEFAULT_PROJECT_COLOR;
   const ptypes = getProjectTypes(p);
   openModal(`
@@ -5678,7 +5689,7 @@ function openProjectModal(id) {
             <div class="flex gap-2">
               <select name="clientId" class="input flex-1">
                 <option value="">— Sin cliente —</option>
-                ${(state.clients||[]).map(c => `<option value="${c.id}" ${p.clientId===c.id?'selected':''}>${escapeHtml(clientLabel(c))}</option>`).join('')}
+                ${(S.state.clients||[]).map(c => `<option value="${c.id}" ${p.clientId===c.id?'selected':''}>${escapeHtml(clientLabel(c))}</option>`).join('')}
               </select>
               <button type="button" class="btn-ghost text-sm whitespace-nowrap" onclick="closeModal(); openClientModal();" title="Crear un cliente nuevo">+ Nuevo</button>
             </div>
@@ -5762,17 +5773,17 @@ function saveProject(e) {
   if (data.id) {
     Object.assign(getProject(data.id), data);
   } else {
-    state.projects.push({ ...data, id: uid() });
+    S.state.projects.push({ ...data, id: uid() });
   }
   save(); closeModal(); render();
 }
 
 function deleteProject(id) {
-  const tasks = state.tasks.filter(t => t.projectId === id);
+  const tasks = S.state.tasks.filter(t => t.projectId === id);
   if (tasks.length > 0 && !confirm(`Este proyecto tiene ${tasks.length} tareas asociadas. ¿Eliminar igual?`)) return;
   if (!confirm('¿Eliminar proyecto?')) return;
-  state.projects = state.projects.filter(p => p.id !== id);
-  state.tasks    = state.tasks.filter(t => t.projectId !== id);
+  S.state.projects = S.state.projects.filter(p => p.id !== id);
+  S.state.tasks    = S.state.tasks.filter(t => t.projectId !== id);
   save(); closeModal(); render();
 }
 
@@ -5883,7 +5894,7 @@ function saveProjectProfile(e, projectId) {
 
 // ---- Income / Expense modals ----
 function openIncomeModal(id) {
-  const i = id ? state.incomes.find(x => x.id === id) : { id: null, concept: '', amount: '', currency: state.defaultCurrency || 'ARS', date: todayISO(), projectId: '', status: 'CONFIRMED' };
+  const i = id ? S.state.incomes.find(x => x.id === id) : { id: null, concept: '', amount: '', currency: S.state.defaultCurrency || 'ARS', date: todayISO(), projectId: '', status: 'CONFIRMED' };
   openModal(`
     <div class="p-6">
       <h2 class="text-xl font-semibold mb-4">${id ? 'Editar ingreso' : 'Nuevo ingreso'}</h2>
@@ -5906,7 +5917,7 @@ function openIncomeModal(id) {
             <label class="text-xs text-gray-500">Proyecto</label>
             <select name="projectId">
               <option value="">Sin proyecto</option>
-              ${state.projects.map(p => `<option value="${p.id}" ${i.projectId===p.id?'selected':''}>${escapeHtml(p.name)}</option>`).join('')}
+              ${S.state.projects.map(p => `<option value="${p.id}" ${i.projectId===p.id?'selected':''}>${escapeHtml(p.name)}</option>`).join('')}
             </select>
           </div>
           <div>
@@ -5934,12 +5945,12 @@ function saveIncome(e) {
   const data = Object.fromEntries(new FormData(e.target).entries());
   data.amount = Number(data.amount);
   if (data.id) {
-    const existing = state.incomes.find(x => x.id === data.id);
+    const existing = S.state.incomes.find(x => x.id === data.id);
     const wasConfirmed = (existing.status || 'CONFIRMED') === 'CONFIRMED';
     const willBeConfirmed = (data.status || 'CONFIRMED') === 'CONFIRMED';
     if (willBeConfirmed && !wasConfirmed) {
-      data.exchangeRateAtTime = Number(state.exchangeRate) || 1200;
-      data.exchangeRateSource = state.exchangeRateSource || 'manual';
+      data.exchangeRateAtTime = Number(S.state.exchangeRate) || 1200;
+      data.exchangeRateSource = S.state.exchangeRateSource || 'manual';
       data.confirmedAt = new Date().toISOString();
     } else if (!willBeConfirmed) {
       data.exchangeRateAtTime = null;
@@ -5950,22 +5961,22 @@ function saveIncome(e) {
     Object.assign(existing, data);
   } else {
     if ((data.status || 'CONFIRMED') === 'CONFIRMED') {
-      data.exchangeRateAtTime = Number(state.exchangeRate) || 1200;
-      data.exchangeRateSource = state.exchangeRateSource || 'manual';
+      data.exchangeRateAtTime = Number(S.state.exchangeRate) || 1200;
+      data.exchangeRateSource = S.state.exchangeRateSource || 'manual';
       data.confirmedAt = new Date().toISOString();
     }
-    state.incomes.push({ ...data, id: uid() });
+    S.state.incomes.push({ ...data, id: uid() });
   }
   save(); closeModal(); render();
 }
 function deleteIncome(id) {
   if (!confirm('¿Eliminar ingreso?')) return;
-  state.incomes = state.incomes.filter(x => x.id !== id);
+  S.state.incomes = S.state.incomes.filter(x => x.id !== id);
   save(); closeModal(); render();
 }
 
 function openExpenseModal(id) {
-  const ex = id ? state.expenses.find(x => x.id === id) : { id: null, concept: '', amount: '', currency: state.defaultCurrency || 'ARS', date: todayISO(), category: 'VARIABLE', projectId: '', status: 'PAID', recurring: true, recurringEndDate: '' };
+  const ex = id ? S.state.expenses.find(x => x.id === id) : { id: null, concept: '', amount: '', currency: S.state.defaultCurrency || 'ARS', date: todayISO(), category: 'VARIABLE', projectId: '', status: 'PAID', recurring: true, recurringEndDate: '' };
   const isFixed = (ex.category || 'VARIABLE') === 'FIXED';
   const isRecurring = ex.recurring !== false;
   openModal(`
@@ -5996,7 +6007,7 @@ function openExpenseModal(id) {
             <label class="text-xs text-gray-500">Proyecto</label>
             <select name="projectId">
               <option value="">Sin proyecto</option>
-              ${state.projects.map(p => `<option value="${p.id}" ${ex.projectId===p.id?'selected':''}>${escapeHtml(p.name)}</option>`).join('')}
+              ${S.state.projects.map(p => `<option value="${p.id}" ${ex.projectId===p.id?'selected':''}>${escapeHtml(p.name)}</option>`).join('')}
             </select>
           </div>
           <div>
@@ -6048,12 +6059,12 @@ function saveExpense(e) {
   data.recurring = data.category === 'FIXED' ? (data.recurring === 'on') : false;
   data.recurringEndDate = data.recurringEndDate || null;
   if (data.id) {
-    const existing = state.expenses.find(x => x.id === data.id);
+    const existing = S.state.expenses.find(x => x.id === data.id);
     const wasPaid = (existing.status || 'PAID') === 'PAID';
     const willBePaid = (data.status || 'PAID') === 'PAID';
     if (willBePaid && !wasPaid) {
-      data.exchangeRateAtTime = Number(state.exchangeRate) || 1200;
-      data.exchangeRateSource = state.exchangeRateSource || 'manual';
+      data.exchangeRateAtTime = Number(S.state.exchangeRate) || 1200;
+      data.exchangeRateSource = S.state.exchangeRateSource || 'manual';
       data.paidAt = new Date().toISOString();
     } else if (!willBePaid) {
       data.exchangeRateAtTime = null;
@@ -6064,23 +6075,23 @@ function saveExpense(e) {
     Object.assign(existing, data);
   } else {
     if ((data.status || 'PAID') === 'PAID') {
-      data.exchangeRateAtTime = Number(state.exchangeRate) || 1200;
-      data.exchangeRateSource = state.exchangeRateSource || 'manual';
+      data.exchangeRateAtTime = Number(S.state.exchangeRate) || 1200;
+      data.exchangeRateSource = S.state.exchangeRateSource || 'manual';
       data.paidAt = new Date().toISOString();
     }
-    state.expenses.push({ ...data, id: uid() });
+    S.state.expenses.push({ ...data, id: uid() });
   }
   save(); closeModal(); render();
 }
 function deleteExpense(id) {
-  const e = state.expenses.find(x => x.id === id);
-  const paymentsCount = e ? (state.recurringExpensePayments || []).filter(r => r.expenseId === id).length : 0;
+  const e = S.state.expenses.find(x => x.id === id);
+  const paymentsCount = e ? (S.state.recurringExpensePayments || []).filter(r => r.expenseId === id).length : 0;
   const detail = paymentsCount > 0
     ? `\n\nTambién se borrarán los ${paymentsCount} pago${paymentsCount>1?'s':''} recurrente${paymentsCount>1?'s':''} registrado${paymentsCount>1?'s':''}.`
     : '';
   if (!confirm(`¿Eliminar gasto?${detail}`)) return;
-  state.expenses = state.expenses.filter(x => x.id !== id);
-  state.recurringExpensePayments = (state.recurringExpensePayments || []).filter(r => r.expenseId !== id);
+  S.state.expenses = S.state.expenses.filter(x => x.id !== id);
+  S.state.recurringExpensePayments = (S.state.recurringExpensePayments || []).filter(r => r.expenseId !== id);
   save(); closeModal(); render();
 }
 
@@ -6101,8 +6112,8 @@ function closeNotifications() {
 
 function renderNotifications() {
   const list = document.getElementById('notifList');
-  const mine = state.notifications
-    .filter(n => n.forMemberId === currentMemberId)
+  const mine = S.state.notifications
+    .filter(n => n.forMemberId === S.currentMemberId)
     .sort((a,b) => b.createdAt.localeCompare(a.createdAt));
   if (mine.length === 0) {
     list.innerHTML = `<div class="p-8 text-center text-gray-400 text-sm">Sin notificaciones.</div>`;
@@ -6126,7 +6137,7 @@ function renderNotifications() {
 }
 
 function openNotification(id) {
-  const n = state.notifications.find(x => x.id === id);
+  const n = S.state.notifications.find(x => x.id === id);
   if (!n) return;
   n.read = true;
   save();
@@ -6136,7 +6147,7 @@ function openNotification(id) {
 }
 
 function markAllRead() {
-  state.notifications.forEach(n => { if (n.forMemberId === currentMemberId) n.read = true; });
+  S.state.notifications.forEach(n => { if (n.forMemberId === S.currentMemberId) n.read = true; });
   save();
   renderNav();
   renderNotifications();
@@ -6153,7 +6164,7 @@ document.addEventListener('click', (e) => {
 
 // ============ EXPORT / IMPORT ============
 function exportData() {
-  const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify(S.state, null, 2)], { type: 'application/json' });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href = url;
@@ -6172,7 +6183,7 @@ document.getElementById('fileInput').addEventListener('change', (e) => {
     try {
       const imported = JSON.parse(ev.target.result);
       if (!confirm('Esto reemplaza todos los datos actuales. ¿Continuar?')) return;
-      state = { ...structuredClone(DEFAULT_STATE), ...imported };
+      S.state = { ...structuredClone(DEFAULT_STATE), ...imported };
       save(); render();
     } catch {
       alert('Archivo inválido.');
@@ -6194,8 +6205,8 @@ document.addEventListener('keydown', (e) => {
 
 // ============ BOOT ============
 // Inyectar dependencias en los servicios (capa services/) antes de usarlos.
-initExchange({ getState: () => state, save, render, showToast });
-initEmail({ getState: () => state, getMember, getTask, currentMember, showToast });
+initExchange({ getState: () => S.state, save, render, showToast });
+initEmail({ getState: () => S.state, getMember, getTask, currentMember, showToast });
 
 // Mostrar overlay de login por defecto hasta que Supabase confirme sesión
 renderLoginOverlay();
@@ -6206,15 +6217,15 @@ render();
 (function migratePaymentTemplate() {
   const OLD = 'Hola {name}! 👋\n\nTe paso el recordatorio del pago mensual del proyecto *{project}* correspondiente a {month}.\n\nMonto: {amount} (≈ {amountARS} al cambio de hoy, cotización USD {rate})\n\n¡Gracias!\nPragma Studio';
   const NEW = 'Hola {name}! 👋\n\nTe paso el recordatorio del pago mensual del proyecto *{project}* correspondiente a {month}.\n\nMonto: {amount}\n\n¡Gracias!\nPragma Studio';
-  if (state.paymentMessageTemplate === OLD) {
-    state.paymentMessageTemplate = NEW;
+  if (S.state.paymentMessageTemplate === OLD) {
+    S.state.paymentMessageTemplate = NEW;
     save();
   }
 })();
 
 // Show pending notifications toast on app load + auto-refresh blue dollar
 setTimeout(() => {
-  const unread = (state.notifications || []).filter(n => n.forMemberId === currentMemberId && !n.read);
+  const unread = (S.state.notifications || []).filter(n => n.forMemberId === S.currentMemberId && !n.read);
   if (unread.length > 0) {
     const recent = unread[unread.length - 1];
     showToast(`Tenés ${unread.length} notificación${unread.length>1?'es':''} sin leer · ${recent.text}`, 'info', 6000);
@@ -6269,15 +6280,15 @@ Object.assign(window, {
 //    Se exponen como accessors get/set que proxyean a la variable del módulo,
 //    de modo que `handler: financeMode='x'` escribe la misma binding que lee render().
 [
-  ['financeMode',        () => financeMode,        (v) => (financeMode = v)],
-  ['financeMonth',       () => financeMonth,       (v) => (financeMonth = v)],
-  ['financeFrom',        () => financeFrom,        (v) => (financeFrom = v)],
-  ['financeTo',          () => financeTo,          (v) => (financeTo = v)],
-  ['promptStyle',        () => promptStyle,        (v) => (promptStyle = v)],
-  ['tasksViewMode',      () => tasksViewMode,      (v) => (tasksViewMode = v)],
-  ['tasksFilter',        () => tasksFilter,        (v) => (tasksFilter = v)],
-  ['projectsViewMode',   () => projectsViewMode,   (v) => (projectsViewMode = v)],
-  ['projectsListStatus', () => projectsListStatus, (v) => (projectsListStatus = v)],
-  ['projectsTypeFilter', () => projectsTypeFilter, (v) => (projectsTypeFilter = v)],
-  ['budgetsFilterStatus',() => budgetsFilterStatus,(v) => (budgetsFilterStatus = v)],
+  ['financeMode',        () => S.financeMode,        (v) => (S.financeMode = v)],
+  ['financeMonth',       () => S.financeMonth,       (v) => (S.financeMonth = v)],
+  ['financeFrom',        () => S.financeFrom,        (v) => (S.financeFrom = v)],
+  ['financeTo',          () => S.financeTo,          (v) => (S.financeTo = v)],
+  ['promptStyle',        () => S.promptStyle,        (v) => (S.promptStyle = v)],
+  ['tasksViewMode',      () => S.tasksViewMode,      (v) => (S.tasksViewMode = v)],
+  ['tasksFilter',        () => S.tasksFilter,        (v) => (S.tasksFilter = v)],
+  ['projectsViewMode',   () => S.projectsViewMode,   (v) => (S.projectsViewMode = v)],
+  ['projectsListStatus', () => S.projectsListStatus, (v) => (S.projectsListStatus = v)],
+  ['projectsTypeFilter', () => S.projectsTypeFilter, (v) => (S.projectsTypeFilter = v)],
+  ['budgetsFilterStatus',() => S.budgetsFilterStatus,(v) => (S.budgetsFilterStatus = v)],
 ].forEach(([k, get, set]) => Object.defineProperty(window, k, { get, set, configurable: true }));
