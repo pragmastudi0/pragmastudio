@@ -22,23 +22,12 @@
     <div class="card p-6 mb-6">
       <h2 class="font-semibold mb-3">Setup (una sola vez)</h2>
       <ol class="text-sm space-y-3 list-decimal pl-5 text-gray-700">
-        <li>En tu proyecto de Supabase: <b>SQL Editor → New query</b>. Pegá y corré esto:
-          <pre class="bg-gray-900 text-gray-100 text-xs p-3 rounded mt-2 overflow-x-auto"><code>create table if not exists pragma_state (
-  id text primary key,
-  data jsonb not null,
-  writer text,
-  updated_at timestamptz default now()
-);
-
-alter table pragma_state enable row level security;
-
-create policy "open access" on pragma_state
-  for all using (true) with check (true);
-
-alter publication supabase_realtime add table pragma_state;</code></pre>
-        </li>
-        <li>Andá a <b>Project Settings → API</b>. Copiá <b>Project URL</b> y la <b>anon public key</b>.</li>
-        <li>Pegalas abajo.</li>
+        <li>En tu proyecto de Supabase: <b>SQL Editor → New query</b>. Pegá y corré el contenido de
+          <b>supabase/migrations/ps_0001_tenancy.sql</b> (crea la estructura multiempresa con RLS
+          restrictiva por organización). Luego sembrá tu empresa con <b>scripts/seed-org1.mjs</b>.</li>
+        <li>Lo recomendado es configurar <b>VITE_SUPABASE_URL</b> y <b>VITE_SUPABASE_ANON_KEY</b> como
+          variables de entorno (ver <b>.env.example</b>). Este formulario es sólo un fallback local.</li>
+        <li>Andá a <b>Project Settings → API</b>. Copiá <b>Project URL</b> y la <b>anon public key</b> y pegalas abajo.</li>
       </ol>
     </div>
 
@@ -83,6 +72,7 @@ alter publication supabase_realtime add table pragma_state;</code></pre>
     </div>
     <nav id="nav" class="px-3 flex-1 space-y-1"></nav>
     <div class="p-3 border-t border-gray-100">
+      <div id="orgChip" class="mb-2"></div>
       <div id="userInfo" class="mb-2"></div>
       <div id="syncStatus" class="text-[11px] text-gray-400 mb-2 px-2 flex items-center gap-1.5"></div>
       <div class="flex gap-1">

@@ -180,12 +180,15 @@ export async function getAuthToken() {
 
 export async function callApi(path, opts = {}) {
   const token = await getAuthToken();
+  const headers = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${token}`,
+  };
+  // Contexto de organización (Fase 1): el backend exige membresía cuando viene.
+  if (S.activeOrgId) headers['X-Org-Id'] = S.activeOrgId;
   const res = await fetch(path, {
     method: opts.method || 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
+    headers,
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
   let json;

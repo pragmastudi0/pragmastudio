@@ -7,6 +7,7 @@ import { openProjectProfileModal, saveProjectProfile } from './modules/clients.j
 import { copyPaymentMsg, deleteExpense, deleteIncome, navYear, openExchangeRateModal, openExpenseModal, openFinanceBreakdown, openIncomeModal, openPaymentsModal, openRangePickerInline, removePayment, renderPaymentsModal, resetPaymentMsg, saveExpense, saveIncome, saveManualRate, selectFinanceMonth, sendPaymentNow, sendPaymentReminder, setBaseCurrency, setFinanceMode, setPaymentAmount, submitPayment, toggleRecurringFields, updatePaymentConversionPreview } from './modules/finance.js';
 import { backToEditInvoice, confirmEmitInvoice, deleteClient, deleteRecurringExpenseFull, openClientModal, openInvoiceListModal, openInvoiceModal, openInvoicePdf, previewInvoice, saveClient, updateInvoiceDocPlaceholder } from './modules/invoices.js';
 import { markAllRead, openNotification, toggleNotifications } from './modules/notifications.js';
+import { openOnboarding, openOrgSwitcher, psCreateOrg, psSelectOrg } from './modules/organizations.js';
 import { copyPromptText, deleteProject, dragColLeave, dragColOver, dragProjectEnd, dragProjectStart, dropProject, openProjectDetail, openProjectModal, openPromptModal, saveProject } from './modules/projects.js';
 import { addComment, deleteTask, openTaskDetail, openTaskModal, quickStatus, saveTask } from './modules/tasks.js';
 import { deleteMember, insertTemplateVar, openMemberModal, openMemberPicker, saveEmailConfig, saveFinanceSettings, saveMember, updateTemplatePreview } from './modules/team.js';
@@ -125,6 +126,9 @@ Object.assign(window, {
   // Handlers inline del shell index.html (setup overlay, sidebar, notificaciones, backup).
   closeSidebar, exportData, importData, markAllRead, saveSupabaseConfig,
   skipSetup, toggleNotifications, toggleSidebar,
+  // Tenencia SaaS (Fase 1): organizaciones.
+  openOrgSwitcher, psCreateOrg, psSelectOrg,
+  openOrgOnboarding: () => openOnboarding(false),
 });
 
 // 2) Variables de estado de vista que los handlers inline REASIGNAN.
