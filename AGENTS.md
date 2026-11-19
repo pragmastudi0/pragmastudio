@@ -9,6 +9,12 @@
 > código ni en este documento, verificalo antes de afirmarlo.
 >
 > Última auditoría: 2026-11-19 · Rama de la auditoría: `agentes-ia`
+>
+> **Refactor de arquitectura en curso** (rama `refactor/modularizar-frontend`): el frontend se está
+> modularizando con **Vite + ES Modules**. La lógica dejó de estar en `index.html` y vive bajo `src/`
+> (hoy mayormente en `src/legacy/app.js`, migrándose por módulos). Las **reglas de negocio no cambian**.
+> Detalle en [`docs/architecture/`](docs/architecture/README.md). Las referencias de arquitectura de
+> abajo (§2, §3, §8, §12) ya reflejan la nueva estructura.
 
 ---
 
@@ -38,20 +44,23 @@ presupuesta y qué se factura) en una herramienta rápida y sin fricción.
 
 | Capa | Tecnología | Dónde |
 |------|-----------|-------|
-| Frontend | **Vanilla JS** (sin framework, sin build step), HTML único | `index.html` |
-| Estilos | **Tailwind CSS vía CDN** (`cdn.tailwindcss.com`) + CSS inline | `index.html` `<style>` |
+| Frontend | **Vanilla JS + Vite + ES Modules** (sin framework, sin TypeScript) | `src/` (entrada `src/main.js`) |
+| Estilos | **Tailwind CSS vía CDN** (`cdn.tailwindcss.com`) + CSS propio | `index.html` + `src/styles/base.css` |
 | Backend | **Funciones serverless de Vercel** (Node.js 20.x, CommonJS) | `api/afip/*.js` |
-| Base de datos / sync | **Supabase** (Postgres + Auth + Realtime) vía CDN `@supabase/supabase-js@2` | `index.html` |
-| Email | **EmailJS** vía CDN `@emailjs/browser@4` (client-side) | `index.html` |
-| Facturación | **`@afipsdk/afip.js`** (única dependencia npm) | `api/afip/`, `lib/afip-helpers.js` |
-| Hosting | **Vercel** (estático + serverless; sin `vercel.json`, autodetección) | — |
+| Base de datos / sync | **Supabase** (Postgres + Auth + Realtime) vía CDN `@supabase/supabase-js@2` | `src/legacy/app.js` |
+| Email | **EmailJS** vía CDN `@emailjs/browser@4` (client-side) | `src/legacy/app.js` |
+| Facturación | **`@afipsdk/afip.js`** (dep de runtime del backend) | `api/afip/`, `lib/afip-helpers.js` |
+| Hosting | **Vercel** (build Vite + serverless; `vercel.json`) | — |
 
-`package.json` sólo declara `@afipsdk/afip.js` y `engines.node = 20.x`. **No hay toolchain de build,
-ni bundler, ni tests, ni linter configurados.** El frontend se sirve tal cual.
+`package.json` declara `@afipsdk/afip.js` (backend) y, como devDeps, **Vite** y **Vitest**; scripts
+`dev`, `build`, `preview`, `test`. El frontend se compila con Vite a `dist/`. Hay tests de
+caracterización en `tests/` (funciones puras); aún no hay linter ni typecheck. Tailwind, Supabase y
+EmailJS siguen cargándose por **CDN** desde `index.html` (decisión: riesgo visual cero, sin deps extra).
 
 ### Flujo de información
 
-1. El navegador carga `index.html`. Todo el estado vive en un objeto JS global `state`.
+1. El navegador carga `index.html`, que importa `src/main.js` (módulo ES). El estado vive en un objeto
+   `state` (hoy en `src/legacy/app.js`; expuesto a los handlers inline vía un `window-bridge`).
 2. `state` se persiste en **dos lugares**: `localStorage['pragma_state']` (espejo local) y una **única
    fila** de Supabase (`pragma_state`, `id='main'`, columna `data jsonb`).
 3. Los cambios se guardan con `save()` (debounce 500 ms) como **upsert del documento completo**.
@@ -74,32 +83,37 @@ ni bundler, ni tests, ni linter configurados.** El frontend se sirve tal cual.
 
 ```
 /
-├── index.html          # ★ Aplicación completa (SPA vanilla JS, ~6850 líneas). TODO el frontend.
+├── index.html          # Shell: <head> (CDN + metas) + contenedores + <script type=module src=/src/main.js>.
 ├── pragma.html         # Variante local-only (sin Supabase/login). Ver §15 (legacy, no referenciada).
 ├── favicon.png         # Ícono / logo.
-├── package.json        # Única dep: @afipsdk/afip.js. Node 20.x.
-├── .gitignore          # Ignora node_modules, .env*, y cert/key AFIP (*.crt/*.key/*.pem/*.csr).
-├── api/
-│   └── afip/
-│       ├── emitir.js   # POST: emite Factura C y devuelve CAE.
-│       ├── estado.js   # GET: healthcheck (env vars + conexión AFIP).
-│       └── ultimo.js   # GET: último número de comprobante emitido.
-└── lib/
-    └── afip-helpers.js # verifyAuth() (valida JWT Supabase) + getAfipClient() (cert/key desde env).
+├── package.json        # Backend: @afipsdk/afip.js. devDeps: vite, vitest. Node 20.x. Scripts dev/build/preview/test.
+├── vite.config.mjs     # Config de Vite (build → dist/).
+├── vercel.json         # Build Vite + api/ serverless + fallback SPA.
+├── .gitignore          # Ignora node_modules, dist, .env*, y cert/key AFIP (*.crt/*.key/*.pem/*.csr).
+├── src/
+│   ├── main.js         # Punto de entrada (importa estilos + app).
+│   ├── styles/base.css # CSS extraído del <style> inline.
+│   ├── legacy/app.js   # ★ Grueso de la lógica (monolito reubicado) + window-bridge. Se migra por módulos.
+│   └── modules/budgets/{constants,engine}.js  # Cotizador ya modularizado (puro, testeado).
+├── tests/              # Vitest — caracterización de funciones puras (budgets).
+├── docs/architecture/  # Documentación del refactor (README, inventory, modules, decisions, migration).
+├── api/afip/           # emitir.js (POST CAE) · estado.js (healthcheck) · ultimo.js (último nº).
+└── lib/afip-helpers.js # verifyAuth() (valida JWT Supabase) + getAfipClient() (cert/key desde env).
 ```
 
-**El 99% de la lógica está en `index.html`.** Está organizado internamente por secciones marcadas con
-comentarios `// ============ NOMBRE ============`. Para ubicarte, buscá esos encabezados:
-`STATE`, `LOGIN`, `CLOUD SYNC`, `CONSTANTS`, `PRESUPUESTOS`, `HELPERS`, `NAV`, `RENDER DISPATCH`,
-`HOME`, `TASKS`, `GANTT`, `PROJECTS`, `PROMPT GENERATOR`, `DOCUMENTS & RESOURCES`, `TEAM`, `FINANCE`,
-`PARTIAL PAYMENTS`, (bloque de **facturación AFIP** ~líneas 3751–4760), `REPORTS`, `GUIDE`, `MODALS`,
-`NOTIFICATIONS PANEL`, `EXPORT / IMPORT`, `UTILS`, `KEYBOARD`, `BOOT`.
+**El grueso de la lógica está en `src/legacy/app.js`** (monolito reubicado, migrándose por módulos).
+Está organizado por secciones marcadas con `// ============ NOMBRE ============`. Para ubicarte, buscá
+esos encabezados: `STATE`, `LOGIN`, `CLOUD SYNC`, `CONSTANTS`, `PRESUPUESTOS` (motor ya en
+`src/modules/budgets/`), `HELPERS`, `NAV`, `RENDER DISPATCH`, `HOME`, `TASKS`, `GANTT`, `PROJECTS`,
+`PROMPT GENERATOR`, `DOCUMENTS & RESOURCES`, `TEAM`, `FINANCE`, `PARTIAL PAYMENTS`, bloque de
+**facturación AFIP**, `REPORTS`, `GUIDE`, `MODALS`, `NOTIFICATIONS PANEL`, `EXPORT / IMPORT`, `UTILS`,
+`KEYBOARD`, `BOOT`, y al final el `WINDOW BRIDGE`. Ver [`docs/architecture/`](docs/architecture/README.md).
 
 ---
 
 ## 4. Módulos funcionales
 
-Las vistas se despachan en `render()` (`index.html`) según `currentView`. La navegación la define el
+Las vistas se despachan en `render()` (`src/legacy/app.js`) según `currentView`. La navegación la define el
 array `NAV`. Vistas: **Tareas, Proyectos, Clientes, Presupuestos, Finanzas, Reportes, Documentos,
 Recursos, Equipo, Manual (guía)**.
 
@@ -257,9 +271,11 @@ exchangeRateSource, exchangeRateUpdatedAt, emailConfig, paymentMessageTemplate, 
 
 ## 8. Convenciones de desarrollo
 
-- **Sin build, sin framework, sin bundler.** Se edita `index.html` directamente. El JS es vanilla con
-  funciones globales y template strings para render (`innerHTML`). Respetá ese estilo: **no introduzcas
-  React/Vue/TS/módulos ES ni un paso de build** salvo pedido explícito.
+- **Vite + ES Modules (vanilla JS), sin framework.** La lógica vive en `src/` (hoy mayormente en
+  `src/legacy/app.js`, migrándose a `src/modules|core|services|utils`). El JS es vanilla con template
+  strings para render (`innerHTML`). **No introduzcas React/Vue ni TypeScript.** Correr/compilar:
+  `npm run dev` / `npm run build`. Al tallar módulos, respetá las capas y el `window-bridge` (no rompas
+  los handlers inline); ver [`docs/architecture/`](docs/architecture/README.md).
 - **Idioma**: todo el código, la UI, los comentarios y los nombres de negocio están en **español**
   (con términos técnicos en inglés para estados/keys). Mantenelo.
 - **Estado**: todo cambio de datos se hace mutando `state` y llamando `save()`. `save()` espeja a
@@ -342,17 +358,18 @@ exchangeRateSource, exchangeRateUpdatedAt, emailConfig, paymentMessageTemplate, 
 
 ## 12. Validación de cambios
 
-> **No hay tests, ni lint, ni typecheck, ni CI configurados** (verificado: `package.json` no define
-> scripts; no hay archivos de test ni config de CI). La validación es **manual**.
+> Hay **build** (Vite) y **tests de caracterización** (Vitest) para funciones puras. Aún no hay lint,
+> typecheck ni CI. La validación de la UI es **manual** (ver [`docs/architecture/migration.md`](docs/architecture/migration.md)).
 
 Verificaciones aplicables y seguras:
 
-- **Sintaxis JS del frontend**: `node --check` no sirve directo sobre HTML. Para validar el JS embebido,
-  extraelo o revisá en el navegador la consola (sin errores al cargar).
+- **Build del frontend**: `npm run build` (Vite). Debe compilar sin imports rotos ni errores.
+- **Tests**: `npm test` (Vitest). Hoy cubre el motor de presupuestos; sumá caracterización al tallar
+  módulos puros, **antes** de moverlos.
 - **Backend serverless**: `node --check api/afip/emitir.js` (y `estado.js`, `ultimo.js`, `lib/afip-helpers.js`)
   para validar sintaxis. **No** los ejecutes contra AFIP real.
-- **Prueba funcional manual**: abrir `index.html` en el navegador, loguear (o modo local), y recorrer la
-  vista afectada verificando consola limpia y que los totales/flujos cuadren.
+- **Prueba funcional manual**: `npm run dev`, loguear, y recorrer la vista afectada verificando consola
+  limpia y que los totales/flujos cuadren (checklist completo en `docs/architecture/migration.md`).
 - **AFIP**: usar el healthcheck `GET /api/afip/estado` (requiere token). **Nunca** emitir facturas de
   prueba en producción (`AFIP_PRODUCTION='true'`).
 
@@ -423,9 +440,10 @@ entregar.**
   referenciada** por `index.html` ni por routing, y no aparece en `package.json`. Parece un **prototipo
   o versión offline heredada**. Confirmar con el equipo antes de asumir que está en uso; en principio
   **el app vivo es `index.html`**.
-- **Sin tooling de calidad**: no hay tests/lint/typecheck/CI. La robustez depende de revisión manual.
-- **Deploy**: Vercel por autodetección (sin `vercel.json`). La configuración de env vars vive en el
-  panel de Vercel, no en el repo.
+- **Tooling de calidad parcial**: hay build (Vite) y tests de caracterización (Vitest, sólo funciones
+  puras); aún faltan lint, typecheck y CI. La UI se valida a mano.
+- **Deploy**: Vercel con build de Vite (`vercel.json`: `vite build` → `dist/`, `api/` serverless,
+  fallback SPA). La configuración de env vars vive en el panel de Vercel, no en el repo.
 - **Seguridad**: RLS abierta + anon key pública ⇒ el modelo de acceso real no está endurecido (§6/§11).
   Documentado como riesgo operativo; **no** fue modificado por esta auditoría.
 - **Concurrencia**: sync last-write-wins sin merge; pérdida de datos posible con edición simultánea.
