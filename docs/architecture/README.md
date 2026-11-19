@@ -46,15 +46,21 @@ global). `legacy/app.js` termina con un bloque **window-bridge** que:
 
 Esto preserva el comportamiento EXACTO sin tocar la lógica. Detalle y lista en `migration.md`.
 
-## Estado de la migración
+## Estado de la migración — ✅ COMPLETA
 
-| Pieza | Estado |
-|-------|--------|
-| Infra Vite + build + Vercel | ✅ hecho |
-| CSS extraído | ✅ hecho |
-| Script reubicado a `src/legacy/app.js` + window-bridge | ✅ hecho |
-| Módulo **Presupuestos** (constants + engine) + tests | ✅ hecho |
-| core/state, persistence, services (supabase/auth/realtime/exchange/email) | ⏳ etapas siguientes |
-| Resto de módulos (tasks, projects, clients, finance, invoices, reports, etc.) | ⏳ etapas siguientes |
+`src/legacy/app.js` ya **no existe**: toda la lógica vive en módulos. `index.html` → `src/main.js`
+→ `src/boot.js` (secuencia de arranque + window-bridge) → el grafo de módulos.
 
-Ver `migration.md` para el plan de las etapas restantes y el checklist de validación.
+| Capa | Módulos |
+|------|---------|
+| Entrada | `main.js`, `boot.js` (arranque + bridge + listeners globales) |
+| core | `state.js` (S + DEFAULT_STATE + load + CLIENT_ID), `constants.js`, `selectors.js` (getProject/currentMember/…), `ui.js` (render dispatch, nav, toast, header, modales), `persistence.js` (export/import) |
+| services | `cloud.js` (supabase + sync + save + realtime), `auth.js` (login/miembros), `exchange.js`, `email.js` |
+| modules | `dashboard, tasks, projects, clients, budgets_ui, budgets/{constants,engine}, finance, invoices, reports, documents, team, notifications` |
+| utils | `helpers.js` (puros) |
+| styles | `base.css` |
+
+Verificación: `npm run build` (Vite, 29 módulos) · `npm test` (36 tests: budgets + helpers + **smoke
+de render de las 10 vistas** en jsdom) · `npm run lint` (ESLint `no-undef`, 0 errores) · cobertura del
+window-bridge (0 funciones inline faltantes). **Pendiente: QA manual en navegador** con Supabase/AFIP
+reales (login, sync, finanzas, facturación) — ver `migration.md`.
