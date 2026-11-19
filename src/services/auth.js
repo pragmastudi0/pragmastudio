@@ -1,12 +1,13 @@
 import { currentMember } from '../core/selectors.js';
 import { S } from '../core/state.js';
-import { render, renderNav, showToast } from '../core/ui.js';
-import { loadStateFromCloud, save, subscribeRealtime } from './cloud.js';
+import { showToast } from '../core/ui.js';
+import { bootstrapAfterAuth, save } from './cloud.js';
 import { uid } from '../utils/helpers.js';
 
 // ============ LOGIN (Supabase Auth) ============
-// Mapeo email → datos del miembro. Si entra un email nuevo, se crea miembro genérico.
-// Para agregar/cambiar: editá este mapeo y pusheá. El email debe coincidir EXACTO con el de Supabase Auth.
+// DEPRECADO (Fase 1 SaaS): la identidad del miembro se resuelve por la MEMBRESÍA
+// activa (ps_memberships.legacy_member_id). MEMBER_MAP queda sólo como fallback
+// para organizaciones sin membresía poblada; se retira por completo en Fase 3.
 export const MEMBER_MAP = {
   'gonbenedetto1@gmail.com':  { memberId: 'me',      name: 'Gonzalo', color: '#3b82f6' },
   'gasparquintana00@gmail.com': { memberId: 'gaspar', name: 'Gaspar',  color: '#ec4899' },
@@ -21,6 +22,18 @@ export function isLoggedIn() { return !!S._currentAuthUser; }
 export function setMemberFromAuthUser(user) {
   if (!user || !user.email) return;
   const email = user.email.toLowerCase();
+  // 0. Fase 1 SaaS: identidad por membresía activa (preferente).
+  const mb = S.activeMembership;
+  if (mb && mb.legacy_member_id) {
+    let m = S.state.members.find(x => x.id === mb.legacy_member_id);
+    if (!m) {
+      m = { id: mb.legacy_member_id, name: mb.display_name || email.split('@')[0], color: mb.color || '#6b7280', email };
+      S.state.members.push(m); save();
+    } else if (!m.email) { m.email = email; save(); }
+    S.currentMemberId = m.id;
+    localStorage.setItem('pragma_current_member', m.id);
+    return;
+  }
   // 1. Buscar miembro existente con ese email
   let member = S.state.members.find(m => (m.email || '').toLowerCase() === email);
   if (!member) {
@@ -108,16 +121,12 @@ export async function handleLogin(e) {
     return;
   }
   // Login OK
-  setMemberFromAuthUser(S._currentAuthUser);
   document.getElementById('loginOverlay').classList.add('hidden');
-  // Ahora que estamos autenticados, cargar el state y suscribir realtime
+  // Resolver organización activa (o mostrar onboarding/selector) y cargar su estado.
   try {
-    await loadStateFromCloud();
-    subscribeRealtime();
+    await bootstrapAfterAuth();
   } catch (err) {
     showToast('Error al cargar datos: ' + (err.message||err), 'info', 5000);
   }
-  renderNav();
-  render();
-  showToast(`Hola ${currentMember()?.name || ''}`, 'success', 2500);
+  if (S.activeOrgId) showToast(`Hola ${currentMember()?.name || ''}`, 'success', 2500);
 }

@@ -48,6 +48,10 @@ export const S = {
   currentTaskId: null,
   currentMemberId: localStorage.getItem('pragma_current_member') || 'me',
   _currentAuthUser: null,
+  // Tenencia SaaS (Fase 1): organización activa y membresías del usuario.
+  activeOrgId: null,
+  memberships: [],
+  activeMembership: null,
   sb: null,
   sbChannel: null,
   cloudReady: false,

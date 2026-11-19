@@ -1,11 +1,14 @@
+import { TABLES } from '../core/db.js';
 import { CLIENT_ID, DEFAULT_STATE, S } from '../core/state.js';
 import { render, renderNav, showToast } from '../core/ui.js';
 import { isLoggedIn, renderLoginOverlay, setMemberFromAuthUser } from './auth.js';
+import { renderOrgChip, resolveActiveOrg } from '../modules/organizations.js';
 
-// ============ CLOUD SYNC (Supabase) ============
-export const SUPABASE_URL = 'https://vvstklprisbqngocgsal.supabase.co';
-
-export const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ2c3RrbHByaXNicW5nb2Nnc2FsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2NTQyNzEsImV4cCI6MjA5MjIzMDI3MX0.Q7LywZvDUQh6g-EpuX3_rXmiygwP8rlOD_KmIR9eze8';
+// ============ CLOUD SYNC (Supabase, multiempresa — Fase 1) ============
+// Config por variables de entorno (Vite). La anon key ya NO se commitea.
+// Fallback: configuración local pegada en el setupOverlay.
+export const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
+export const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
 export function getSupabaseConfig() {
   if (SUPABASE_URL && SUPABASE_KEY) return { url: SUPABASE_URL, key: SUPABASE_KEY };
@@ -32,14 +35,11 @@ export async function initSupabase() {
     S.sb = supabase.createClient(config.url, config.key);
     setSyncStatus('Conectando...', '#fbbf24');
 
-    // Check existing Supabase Auth session
     const { data: { session } } = await S.sb.auth.getSession();
     if (session?.user) {
       S._currentAuthUser = session.user;
-      setMemberFromAuthUser(session.user);
     }
 
-    // Listen for auth state changes (login, logout, expiry)
     S.sb.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_OUT' || (event === 'TOKEN_REFRESHED' && !session)) {
         S._currentAuthUser = null;
@@ -49,26 +49,23 @@ export async function initSupabase() {
         }
       } else if (event === 'SIGNED_IN' && session?.user) {
         S._currentAuthUser = session.user;
-        setMemberFromAuthUser(session.user);
       } else if (event === 'USER_DELETED' || event === 'USER_UPDATED') {
         location.reload();
       }
     });
 
     if (!isLoggedIn()) {
-      // No hay sesión — mostrar overlay de login y no intentar fetch (RLS bloquea)
+      // Sin sesión — mostrar login y no intentar fetch (RLS bloquea).
       renderLoginOverlay();
       setSyncStatus('Esperando login', '#fbbf24');
       return;
     }
 
-    await loadStateFromCloud();
-    subscribeRealtime();
+    await bootstrapAfterAuth();
   } catch (err) {
     console.error('Supabase init error:', err);
     setSyncStatus('Error de conexión', '#ef4444');
     if (err.message && err.message.toLowerCase().includes('row-level security')) {
-      // No autenticado — mostrar login
       renderLoginOverlay();
       return;
     }
@@ -76,10 +73,49 @@ export async function initSupabase() {
   }
 }
 
+// ============ TENENCIA ============
+// Carga las membresías del usuario autenticado (qué organizaciones puede usar).
+export async function fetchMemberships() {
+  if (!S.sb || !S._currentAuthUser) { S.memberships = []; return []; }
+  const { data, error } = await S.sb
+    .from(TABLES.memberships)
+    .select('org_id, role, legacy_member_id, display_name, color, organizations:' + TABLES.organizations + '(name, slug)')
+    .eq('user_id', S._currentAuthUser.id);
+  if (error) { console.error('fetchMemberships:', error); S.memberships = []; return []; }
+  S.memberships = data || [];
+  return S.memberships;
+}
+
+export function setActiveOrg(orgId) {
+  S.activeOrgId = orgId;
+  S.activeMembership = (S.memberships || []).find(m => m.org_id === orgId) || null;
+  try { localStorage.setItem('ps_active_org', orgId); } catch {}
+}
+
+// Orquesta el arranque post-login: membresías → organización activa → estado.
+export async function bootstrapAfterAuth() {
+  if (!S.sb || !S._currentAuthUser) return;
+  await fetchMemberships();
+  const orgId = await resolveActiveOrg();   // puede mostrar onboarding/selector y devolver null
+  if (!orgId) return;                       // la UI continuará vía continueWithOrg()
+  await continueWithOrg(orgId);
+}
+
+// Fija la organización y carga su documento + realtime + identidad.
+export async function continueWithOrg(orgId) {
+  setActiveOrg(orgId);
+  await loadStateFromCloud();
+  subscribeRealtime();
+  setMemberFromAuthUser(S._currentAuthUser);
+  renderOrgChip();
+  renderNav();
+  render();
+}
+
 export async function loadStateFromCloud() {
-  if (!S.sb) return;
+  if (!S.sb || !S.activeOrgId) return;
   setSyncStatus('Cargando...', '#fbbf24');
-  const { data, error } = await S.sb.from('pragma_state').select('*').eq('id', 'main').maybeSingle();
+  const { data, error } = await S.sb.from(TABLES.orgState).select('*').eq('org_id', S.activeOrgId).maybeSingle();
   if (error) {
     setSyncStatus('Error de carga', '#ef4444');
     throw error;
@@ -87,21 +123,22 @@ export async function loadStateFromCloud() {
   if (data && data.data) {
     S.state = { ...structuredClone(DEFAULT_STATE), ...data.data };
     localStorage.setItem('pragma_state', JSON.stringify(S.state));
-    // Re-resolver member ahora que tenemos members frescos del cloud
     if (S._currentAuthUser) setMemberFromAuthUser(S._currentAuthUser);
   } else {
-    // First-time: push local state
-    await S.sb.from('pragma_state').upsert({ id: 'main', data: S.state, writer: CLIENT_ID });
+    // Organización nueva sin documento: inicializar con el estado por defecto.
+    S.state = structuredClone(DEFAULT_STATE);
+    localStorage.setItem('pragma_state', JSON.stringify(S.state));
+    await S.sb.from(TABLES.orgState).upsert({ org_id: S.activeOrgId, data: S.state, writer: CLIENT_ID });
   }
   S.cloudReady = true;
   setSyncStatus('Sincronizado', '#22c55e');
 }
 
 export function subscribeRealtime() {
-  if (!S.sb || S.sbChannel) return;
-  S.sbChannel = S.sb.channel('pragma-state-changes')
+  if (!S.sb || S.sbChannel || !S.activeOrgId) return;
+  S.sbChannel = S.sb.channel('ps-org-state-' + S.activeOrgId)
     .on('postgres_changes',
-      { event: '*', schema: 'public', table: 'pragma_state', filter: 'id=eq.main' },
+      { event: '*', schema: 'public', table: TABLES.orgState, filter: `org_id=eq.${S.activeOrgId}` },
       (payload) => {
         const newRow = payload.new;
         if (!newRow || newRow.writer === CLIENT_ID) return;
@@ -126,13 +163,13 @@ export function subscribeRealtime() {
 
 export function save() {
   localStorage.setItem('pragma_state', JSON.stringify(S.state));
-  if (!S.sb || !S.cloudReady) return;
+  if (!S.sb || !S.cloudReady || !S.activeOrgId) return;
   clearTimeout(S.saveTimer);
   setSyncStatus('Guardando...', '#fbbf24');
   S.saveTimer = setTimeout(async () => {
     try {
-      const { error } = await S.sb.from('pragma_state').upsert({
-        id: 'main',
+      const { error } = await S.sb.from(TABLES.orgState).upsert({
+        org_id: S.activeOrgId,
         data: S.state,
         writer: CLIENT_ID,
         updated_at: new Date().toISOString(),

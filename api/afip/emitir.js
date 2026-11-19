@@ -1,4 +1,4 @@
-const { verifyAuth, getAfipClient } = require('../../lib/afip-helpers');
+const { verifyAuth, requireOrgMembership, getAfipClient } = require('../../lib/afip-helpers');
 
 // POST /api/afip/emitir
 // Body: {
@@ -17,6 +17,13 @@ module.exports = async function handler(req, res) {
 
   const auth = await verifyAuth(req);
   if (!auth.ok) return res.status(401).json({ error: auth.error });
+
+  // Contexto de organización (Fase 1): si el cliente envía X-Org-Id, exigir membresía.
+  const orgId = req.headers['x-org-id'] || (req.body && req.body.orgId) || null;
+  if (orgId) {
+    const member = await requireOrgMembership(auth.user.id, orgId);
+    if (!member.ok) return res.status(403).json({ error: member.error });
+  }
 
   const {
     amount,
@@ -37,13 +44,16 @@ module.exports = async function handler(req, res) {
     return res.status(400).json({ error: 'Falta CUIT/DNI del cliente' });
   }
 
-  let afip;
-  try { afip = getAfipClient(); }
-  catch (e) { return res.status(500).json({ error: e.message }); }
+  let afip, ptoVta, cbteTipo;
+  try {
+    const client = await getAfipClient(orgId);
+    afip = client.afip;
+    ptoVta = client.ptoVta;
+    // Fase 1: Factura C por defecto; el tipo por organización se diseña en ps_org_fiscal_config.
+    cbteTipo = (client.fiscal && client.fiscal.default_cbte_tipo) || 11;
+  } catch (e) { return res.status(500).json({ error: e.message }); }
 
   try {
-    const ptoVta = Number(process.env.AFIP_POINT_OF_SALE);
-    const cbteTipo = 11; // Factura C (Monotributo)
 
     const lastNumber = await afip.ElectronicBilling.getLastVoucher(ptoVta, cbteTipo);
     const newNumber = (lastNumber || 0) + 1;

@@ -1,0 +1,167 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`getAllCashFlowPayments — base caja a tasa congelada > gastos: recurrentes, a su tasa congelada > expense-total-ars 1`] = `36300`;
+
+exports[`getAllCashFlowPayments — base caja a tasa congelada > gastos: recurrentes, a su tasa congelada 1`] = `
+[
+  {
+    "amount": 30,
+    "currency": "USD",
+    "date": "2026-03-02",
+    "exchangeRate": 1210,
+  },
+]
+`;
+
+exports[`getAllCashFlowPayments — base caja a tasa congelada > ingresos: explícitos + recurrentes + sintético, cada uno a su tasa > income-total-ars 1`] = `347500`;
+
+exports[`getAllCashFlowPayments — base caja a tasa congelada > ingresos: explícitos + recurrentes + sintético, cada uno a su tasa 1`] = `
+[
+  {
+    "amount": 80000,
+    "currency": "ARS",
+    "date": "2026-02-12",
+    "exchangeRate": 1100,
+  },
+  {
+    "amount": 50,
+    "currency": "USD",
+    "date": "2026-02-20",
+    "exchangeRate": 1150,
+  },
+  {
+    "amount": 40000,
+    "currency": "ARS",
+    "date": "2026-01-20",
+    "exchangeRate": 1050,
+  },
+  {
+    "amount": 100,
+    "currency": "USD",
+    "date": "2026-03-03",
+    "exchangeRate": 1200,
+  },
+  {
+    "amount": 50000,
+    "currency": "ARS",
+    "date": "2026-03-05",
+    "exchangeRate": 1000,
+  },
+]
+`;
+
+exports[`getCarryOversForMonth — arrastres sólo de parciales anteriores > marzo arrastra i2 (feb) e i3 (ene), ambos parciales 1`] = `
+[
+  {
+    "_carryOver": true,
+    "_carryOverFrom": "2026-02",
+    "_carryOverRemaining": 119950,
+    "_kind": "income",
+    "amount": 200000,
+    "concept": "Servicio",
+    "currency": "ARS",
+    "date": "2026-02-10",
+    "id": "i2",
+    "status": "PENDING",
+  },
+  {
+    "_carryOver": true,
+    "_carryOverFrom": "2026-01",
+    "_carryOverRemaining": 80000,
+    "_kind": "income",
+    "amount": 120000,
+    "concept": "Carry",
+    "currency": "ARS",
+    "date": "2026-01-15",
+    "id": "i3",
+    "status": "PENDING",
+  },
+]
+`;
+
+exports[`getPaymentSummary — pagos parciales y sintéticos > ingreso con pagos parciales ARS+USD → PARTIAL (suma cruda de importes) 1`] = `
+{
+  "expected": 200000,
+  "kind": "income",
+  "payments": [
+    {
+      "amount": 80000,
+      "currency": "ARS",
+      "date": "2026-02-12",
+      "exchangeRate": 1100,
+      "id": "ip1",
+      "incomeId": "i2",
+      "paidAt": "2026-02-12T10:00:00Z",
+    },
+    {
+      "amount": 50,
+      "currency": "USD",
+      "date": "2026-02-20",
+      "exchangeRate": 1150,
+      "id": "ip2",
+      "incomeId": "i2",
+      "paidAt": "2026-02-20T10:00:00Z",
+    },
+  ],
+  "percent": 40,
+  "remaining": 119950,
+  "status": "PARTIAL",
+  "totalPaid": 80050,
+}
+`;
+
+exports[`getPaymentSummary — pagos parciales y sintéticos > ingreso confirmado sin log → pago sintético completo (PAID) 1`] = `
+{
+  "expected": 50000,
+  "kind": "income",
+  "payments": [
+    {
+      "amount": 50000,
+      "exchangeRate": 1000,
+      "id": "__synth__i1",
+      "paidAt": "2026-03-05",
+      "synthetic": true,
+    },
+  ],
+  "percent": 100,
+  "remaining": 0,
+  "status": "PAID",
+  "totalPaid": 50000,
+}
+`;
+
+exports[`getPaymentSummary — pagos parciales y sintéticos > mensualidad recurrente cobrada → PAID a la tasa congelada del cobro 1`] = `
+{
+  "auto": {
+    "amount": 100,
+    "auto": true,
+    "concept": "Mensualidad · Abono A",
+    "currency": "USD",
+    "date": "2026-03-01",
+    "id": "auto-p1-2026-03",
+    "month": "2026-03",
+    "projectId": "p1",
+    "status": "CHARGED",
+  },
+  "summary": {
+    "expected": 100,
+    "kind": "income_recurring",
+    "payments": [
+      {
+        "amount": 100,
+        "chargedAt": "2026-03-03",
+        "currency": "USD",
+        "date": "2026-03-03",
+        "exchangeRate": 1200,
+        "id": "rc1",
+        "month": "2026-03",
+        "projectId": "p1",
+      },
+    ],
+    "percent": 100,
+    "remaining": 0,
+    "status": "PAID",
+    "totalPaid": 100,
+  },
+}
+`;
